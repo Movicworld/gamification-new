@@ -33,34 +33,65 @@ class StaffController extends Controller
     }
 
     public function store(Request $request){
-        $request->validate([
-            'email' => 'required|unique:users',
-            'phone' => 'required|numeric',
-        ]);
-        $bankCode = explode(":", $request->bank_code);
-        $bankInfor = PaystackHelpers::resolveBankName($request->account_number, $bankCode['0']);
-        $bankInfor['data']['account_name'];
+    $request->validate([
+        'email' => 'required|unique:users',
+        'phone' => 'required|numeric',
+    ]);
+    $bankCode = explode(":", $request->bank_code);
+    $bankInfor = PaystackHelpers::resolveBankName($request->account_number, $bankCode['0']);
+    $bankInfor['data']['account_name'];
 
-        $recipientCode = PaystackHelpers::recipientCode($bankInfor['data']['account_name'], $request->account_number, $bankCode['0']);
-        $r_code = $recipientCode['data']['recipient_code'];
-        $user = User::create([
-            'name' => $bankInfor['data']['account_name'],
-            'phone' => $request->phone,
-            'email' => $request->email,
-            'password' => bcrypt('staffing001'),
-            'role' => 'staff'
-        ]);
+    $recipientCode = PaystackHelpers::recipientCode($bankInfor['data']['account_name'], $request->account_number, $bankCode['0']);
+    $r_code = $recipientCode['data']['recipient_code'];
 
-        $staff = Staff::create(['user_id' => $user->id, 'staff_id'=>'1', 'role' => $request->role,  'account_number' => $request->account_number, 'account_name' => $bankInfor['data']['account_name'], 'bank_name'=>$bankCode['1'], 'basic_salary' => $request->basic_salary, 'bonus' => $request->bonus, 'gross' => $request->basic_salary + $request->bonus, 'recipient_code' => $r_code]);
-        $staff->staff_id = 'FBY0'.$staff->id;
-        $staff->save();
+    $password = \Illuminate\Support\Str::random(10);
 
-        $subject = 'Welcome Home!';
-        $content = 'We are glad to have you in the family, this means so much to us and we look forward to working with you and building the best technologies out of Africa.';
-        Mail::to($user->email)->send(new GeneralMail($user, $content, $subject, ''));
+    $user = User::create([
+        'name' => $bankInfor['data']['account_name'],
+        'phone' => $request->phone,
+        'email' => $request->email,
+        'password' => bcrypt($password),
+        'role' => 'staff'
+    ]);
 
-        return  back()->with('success', 'Staff Created Successfully');
-    }
+    $staff = Staff::create(['user_id' => $user->id, 'staff_id'=>'1', 'role' => $request->role,  'account_number' => $request->account_number, 'account_name' => $bankInfor['data']['account_name'], 'bank_name'=>$bankCode['1'], 'basic_salary' => $request->basic_salary, 'bonus' => $request->bonus, 'gross' => $request->basic_salary + $request->bonus, 'recipient_code' => $r_code]);
+    $staff->staff_id = 'FBY0'.$staff->id;
+    $staff->save();
+
+    Mail::to($user->email)->send(new \App\Mail\StaffMail($user, $password, 'https://stagging.e-portal.com.ng/login'));
+
+    return  back()->with('success', 'Staff Created Successfully');
+}
+
+    // public function store(Request $request){
+    //     $request->validate([
+    //         'email' => 'required|unique:users',
+    //         'phone' => 'required|numeric',
+    //     ]);
+    //     $bankCode = explode(":", $request->bank_code);
+    //     $bankInfor = PaystackHelpers::resolveBankName($request->account_number, $bankCode['0']);
+    //     $bankInfor['data']['account_name'];
+
+    //     $recipientCode = PaystackHelpers::recipientCode($bankInfor['data']['account_name'], $request->account_number, $bankCode['0']);
+    //     $r_code = $recipientCode['data']['recipient_code'];
+    //     $user = User::create([
+    //         'name' => $bankInfor['data']['account_name'],
+    //         'phone' => $request->phone,
+    //         'email' => $request->email,
+    //         'password' => bcrypt('staffing001'),
+    //         'role' => 'staff'
+    //     ]);
+
+    //     $staff = Staff::create(['user_id' => $user->id, 'staff_id'=>'1', 'role' => $request->role,  'account_number' => $request->account_number, 'account_name' => $bankInfor['data']['account_name'], 'bank_name'=>$bankCode['1'], 'basic_salary' => $request->basic_salary, 'bonus' => $request->bonus, 'gross' => $request->basic_salary + $request->bonus, 'recipient_code' => $r_code]);
+    //     $staff->staff_id = 'FBY0'.$staff->id;
+    //     $staff->save();
+
+    //     $subject = 'Welcome Home!';
+    //     $content = 'We are glad to have you in the family, this means so much to us and we look forward to working with you and building the best technologies out of Africa.';
+    //     Mail::to($user->email)->send(new GeneralMail($user, $content, $subject, ''));
+
+    //     return  back()->with('success', 'Staff Created Successfully');
+    // }
 
     public function salary(){
         $staff = User::where('role', 'staff')->get();

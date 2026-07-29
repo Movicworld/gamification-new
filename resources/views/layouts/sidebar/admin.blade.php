@@ -245,7 +245,6 @@
               <span class="nav-main-link-name">USD Verified</span>
             </a>
 
-
           </li>
         </ul>
       </li>
