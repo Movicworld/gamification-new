@@ -10,7 +10,7 @@ use App\Models\Referral;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 
-class SystemActivities{
+class systemActivities{
     public static function numberFormat($number, $plus = true){
         if($number >= 1000000000){
             $number = number_format(($number/1000000000), 1);
@@ -34,7 +34,7 @@ class SystemActivities{
     public static function loginPoints($user){
         // $date = \Carbon\Carbon::today()->toDateString();
         // $check = LoginPoints::where('user_id', $user->id)->where('date', $date)->first();
-        
+
         // if(!$check)
         // {
         //     $names = explode(' ', $user->name);
@@ -49,7 +49,7 @@ class SystemActivities{
 
     }
 
-    
+
 
     public static function getInitials($name){
         $names = explode(' ', $name);
@@ -58,7 +58,7 @@ class SystemActivities{
             $initials .= isset($name[0]) . '.';
         }
         $initials = rtrim($initials, '.');
-        return $initials; 
+        return $initials;
     }
     ///this is very important, cannot be removed
     public static function activityLog($user, $activity_type, $description, $user_type){
@@ -68,7 +68,7 @@ class SystemActivities{
     public static function showActivityLog(){
         $startOfWeek = Carbon::now()->startOfWeek();
         $endOfWeek = Carbon::now()->endOfWeek();
-       return ActivityLog::whereBetween('created_at', [$startOfWeek, $endOfWeek])->where('user_type', 'regular')->get();  
+       return ActivityLog::whereBetween('created_at', [$startOfWeek, $endOfWeek])->where('user_type', 'regular')->get();
     }
 
     public static function filterCampaign($categoryID){
@@ -86,17 +86,17 @@ class SystemActivities{
             }else{
                 $campaigns = Campaign::where('status', 'Live')->where('campaign_type', $categoryID)->where('is_completed', false)->orderBy('created_at', 'DESC')->get();
             }
-            
+
         }else{
             if($categoryID == 0){
                 $campaigns = Campaign::where('status', 'Live')->where('currency', $jobfilter)->where('is_completed', false)->orderBy('created_at', 'DESC')->get();
             }else{
                 $campaigns = Campaign::where('status', 'Live')->where('currency', $jobfilter)->where('campaign_type', $categoryID)->where('is_completed', false)->orderBy('created_at', 'DESC')->get();
             }
-            
+
         }
 
-      
+
 
         $list = [];
         foreach($campaigns as $key => $value){
@@ -104,13 +104,13 @@ class SystemActivities{
             $div = $c / $value->number_of_staff;
             $progress = $div * 100;
 
-            $list[] = [ 
-                'id' => $value->id, 
-                'job_id' => $value->job_id, 
+            $list[] = [
+                'id' => $value->id,
+                'job_id' => $value->job_id,
                 'campaign_amount' => $value->campaign_amount,
-                'post_title' => $value->post_title, 
-                'number_of_staff' => $value->number_of_staff, 
-                'type' => $value->campaignType->name, 
+                'post_title' => $value->post_title,
+                'number_of_staff' => $value->number_of_staff,
+                'type' => $value->campaignType->name,
                 'category' => $value->campaignCategory->name,
                 //'attempts' => $attempts,
                 'completed' => $c, //$value->completed_count+$value->pending_count,
@@ -136,7 +136,7 @@ class SystemActivities{
         });
 
          return  $filteredArray;
-      
+
     }
 
     public static function availableJobs(){ //depreciated
@@ -153,20 +153,20 @@ class SystemActivities{
         }else{
             $campaigns = Campaign::where('status', 'Live')->where('currency', $jobfilter)->where('is_completed', false)->orderBy('created_at', 'DESC')->get();
         }
-        
+
         $list = [];
         foreach($campaigns as $key => $value){
             $c = $value->pending_count + $value->completed_count;//
             $div = $c / $value->number_of_staff;
             $progress = $div * 100;
 
-            $list[] = [ 
-                'id' => $value->id, 
-                'job_id' => $value->job_id, 
+            $list[] = [
+                'id' => $value->id,
+                'job_id' => $value->job_id,
                 'campaign_amount' => $value->campaign_amount,
-                'post_title' => $value->post_title, 
-                'number_of_staff' => $value->number_of_staff, 
-                'type' => $value->campaignType->name, 
+                'post_title' => $value->post_title,
+                'number_of_staff' => $value->number_of_staff,
+                'type' => $value->campaignType->name,
                 'category' => $value->campaignCategory->name,
                 //'attempts' => $attempts,
                 'completed' => $c, //$value->completed_count+$value->pending_count,
@@ -191,7 +191,7 @@ class SystemActivities{
         });
 
          return  $filteredArray;
-      
+
     }
 
     public static function badgeCount(){
@@ -209,7 +209,7 @@ class SystemActivities{
         $color = '';
         $membership = '';
         $amount = '';
-        
+
         if($count >= 10 && $count <= 20){
             $color = '#E5E4E2';
             $membership = 'Platinum';
@@ -245,7 +245,7 @@ class SystemActivities{
        if($campaign){
             $campaign->impressions += 1;
             $campaign->save();
-    
+
             $data = $campaign;
             $data['current_user_id'] = auth()->user()->id;
             $data['is_attempted'] = $campaign->completed()->where('user_id', auth()->user()->id)->first() != null ? true : false;
@@ -254,7 +254,7 @@ class SystemActivities{
        }else{
             return false;
        }
-      
+
         //$completed = CampaignWorker::where('user_id', auth()->user()->id)->where('campaign_id', $getCampaign->id)->first();
     }
 
@@ -271,7 +271,7 @@ class SystemActivities{
             } else {
                return 'error_1'; //return "Invalid phone number. It contains letters or special characters.";
             }
-    
+
             //count the  number of string
             $phoneCount = preg_match_all('/\d/', $formatted_number);
             if($phoneCount == 13){
@@ -282,8 +282,8 @@ class SystemActivities{
         }else{
             return $phone_number;
         }
-        
-        
+
+
     }
 
 }

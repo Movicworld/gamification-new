@@ -17,7 +17,7 @@ use Flutterwave\Service\VirtualCard;
 use Flutterwave\Util\Currency;
 use Illuminate\Support\Facades\Log;
 
-class PaystackHelpers
+class paystackHelpers
 {
     public static function countryList()
     {

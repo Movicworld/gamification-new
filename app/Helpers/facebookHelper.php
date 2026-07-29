@@ -1,10 +1,10 @@
-<?php 
+<?php
 
 namespace App\Helpers;
 
 use Illuminate\Support\Facades\Http;
 
-class FacebookHelper{
+class facebookHelper{
 
     public static function index(){
         return 'ok';
@@ -24,7 +24,7 @@ class FacebookHelper{
 
     public static function getPosts($token){
         // 267978826632355
-        
+
         $post_id = '267978826632355';//{post-id}';
         $access_token = $token; //$this->generateAccessToken(); //'EAAD3fnxa5H0BOzgreKA0TSivonYvIZC8NWZAPHZBuAkYs5OPls8pNm7R4NDS5Kci6agesy5yzGV797qcp42uOuAegiJUZC9FZBIF7VSBCYmRhjsMxLbbUSuQjUZCoM68XPuwdFbr8bWvr7oOJwTMP2gahsDj4ddKcNKZBoxCl6ZCI35MEfoWE8uCzWqQDmj5u2Kte8SZAGeGCWJ8WZCQZDZD';
 
