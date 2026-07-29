@@ -19,7 +19,7 @@
         <link rel="stylesheet" href="{{ asset('asset/style.css') }}">
         <link rel="stylesheet" href="{{ asset('asset/css/responsive.css') }}">
         <script src="{{ asset('asset/js/vendor/modernizr-2.8.3.min.js') }}"></script>
-        
+
         <script>
             !function(f,b,e,v,n,t,s)
             {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
@@ -73,7 +73,7 @@
             gtag('config', 'UA-238432357-1');
             </script>
 
-        
+
             <!-- Global site tag (gtag.js) - Google Analytics -->
             <script async src="https://www.googletagmanager.com/gtag/js?id=G-G7C4X8TR6T"></script>
             <script>
@@ -97,7 +97,7 @@
 
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.5.0/css/font-awesome.min.css">
 
-           
+
         <style>
 
             .float{
@@ -141,16 +141,16 @@
 		<!-- basic-slider start -->
 
         @yield('content')
-		
+
         <a href="https://tawk.to/chat/6510bbe9b1aaa13b7a78ae75/1hb4ls2fd" class="float" target="_blank">
             <i class="fa fa-comments fa-lg" aria-hidden="true"></i>
-           
+
         </a>
 		<!-- footer start -->
 		@include('layouts.footer')
 		<!-- footer end -->
 
-        
+
 		<!-- All js plugins here -->
         <script src="{{ asset('asset/js/vendor/jquery-1.12.0.min.js') }}"></script>
         <script src="{{ asset('asset/js/bootstrap.min.js') }}"></script>

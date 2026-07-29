@@ -362,6 +362,7 @@ class RegisterController extends Controller
         switch ($user->role) {
             case 'admin':
             case 'super_admin':
+            case 'staff':
                 if (! Hash::check($request->password, $user->password)) {
                     return back()->with('error', 'Email or Password is incorrect');
                 }
@@ -422,8 +423,8 @@ class RegisterController extends Controller
                 //     return redirect('home');
 
 
-            case 'staff':
-                return "Staff Account";
+                // case 'staff':
+                //     return "Staff Account";
 
             default:
                 return "Not applicable";
