@@ -50,7 +50,7 @@
             "app/Helpers/globalhelpers.php",
             "app/Helpers/wellahealthApiIntegration.php",
             "app/Helpers/flutterwave.php",
-            "app/Helpers/PaystackHelpers.php",
+            "app/Helpers/paystackHelpers.php",
             "app/Helpers/NotificationHelpers.php"
         ]
     },

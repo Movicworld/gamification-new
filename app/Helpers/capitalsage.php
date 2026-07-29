@@ -1,4 +1,4 @@
-<?php 
+<?php
 
 namespace App\Helpers;
 
@@ -7,7 +7,7 @@ use App\Models\Statistics;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Http;
 
-class CapitalSage{
+class capitalSage{
     public static function access_token(){
         $res = Http::withHeaders([
             'Accept' => 'application/json',

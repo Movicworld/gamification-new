@@ -1,11 +1,11 @@
-<?php 
+<?php
 
 namespace App\Helpers;
 
 use Illuminate\Support\Facades\Http;
 use GuzzleHttp\Client;
 
-class Sendmonny{
+class sendmonny{
 
     public static function index(){
         return 'ok';
@@ -59,5 +59,5 @@ class Sendmonny{
     }
 
 
-     
+
 }
