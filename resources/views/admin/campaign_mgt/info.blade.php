@@ -72,13 +72,13 @@
                                     {{$campaign->number_of_staff}}
                                 </div>
                                 <div class="col-6">
-                                    @if(auth()->user()->wallet->base_currency === "Naira" || auth()->user()->wallet->base_currency === 'NGN')
+                                    {{-- @if(auth()->user()->wallet->base_currency === "Naira" || auth()->user()->wallet->base_currency === 'NGN') --}}
                                         <label class="form-label" for="post-salary-min">Cost per Campaign</label>
-                                    @else
+                                    {{-- @else
                                         <label class="form-label" for="post-salary-min">Cost per Campaign</label>
-                                    @endif
+                                    @endif --}}
                                     <br>
-                                    {{$campaign->campaign_amount}}
+                                    {{ $campaign->currency }} {{$campaign->campaign_amount}}
                                 </div>
                             </div>
                             <hr>
