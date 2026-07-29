@@ -65,7 +65,8 @@ class HomeController extends Controller
             return redirect()->route('admin.home');
         } elseif ($user->hasRole('staff')) {
             // return 'staff';
-            return redirect()->route('staff.home');
+            // return redirect()->route('staff.home');
+            return redirect()->route('admin.home');
         } elseif ($user->hasRole('super_admin')) {
             // return 'staff';
             return redirect()->route('admin.home');
@@ -449,7 +450,7 @@ class HomeController extends Controller
         ', ['successful', $startDate, $endDate]);
         }
 
-        
+
 
         return view('admin.index_new', $data);
     }
