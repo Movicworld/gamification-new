@@ -13,14 +13,12 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Stevebauman\Location\Facades\Location;
-use Flutterwave\Payload;
 use Flutterwave\Service\VirtualCard;
 use Flutterwave\Util\Currency;
 use Illuminate\Support\Facades\Log;
 
 class PaystackHelpers
 {
-
     public static function countryList()
     {
 
