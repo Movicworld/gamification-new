@@ -385,6 +385,7 @@ class WebhookController extends Controller
         return response()->json(['status' => 'success']);
     }
 
+
     private function handleEvent(string $eventName, MassEmailLog $log, array $message): void
     {
         $campaign = $log->campaign;
