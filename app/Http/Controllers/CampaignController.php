@@ -488,7 +488,7 @@ class CampaignController extends Controller
                 // Mail::to(auth()->user()->email)->send(new CreateCampaign($processedCampaign));
 
                 if (config('app.env') === 'Production') {
-                    Mail::to('hello@freebyztechnologies.com')
+                    Mail::to('holla@freebyz.com')
                         // ->cc('blessing@freebyztechnologies.com')
                         ->send(new AdminCampaignPosted($processedCampaign));
                 }
