@@ -52,43 +52,29 @@
                             <label class="form-label">Job Type <span class="text-danger">*</span></label>
                             <select class="form-select @error('type') is-invalid @enderror" name="type" required>
                                 <option value="">Select type</option>
-                                <option value="fulltime" {{ old('type', $job->type) == 'fulltime' ? 'selected' : '' }}>Full
-                                    Time</option>
-                                <option value="parttime" {{ old('type', $job->type) == 'parttime' ? 'selected' : '' }}>Part
-                                    Time</option>
-                                <option value="contract" {{ old('type', $job->type) == 'contract' ? 'selected' : '' }}>
-                                    Contract</option>
-                                <option value="internship" {{ old('type', $job->type) == 'internship' ? 'selected' : '' }}>
-                                    Internship</option>
+                                <option value="fulltime" {{ old('type', $job->type) == 'fulltime' ? 'selected' : '' }}>Full Time</option>
+                                <option value="parttime" {{ old('type', $job->type) == 'parttime' ? 'selected' : '' }}>Part Time</option>
+                                <option value="contract" {{ old('type', $job->type) == 'contract' ? 'selected' : '' }}>Contract</option>
+                                <option value="internship" {{ old('type', $job->type) == 'internship' ? 'selected' : '' }}>Internship</option>
                                 <option value="gig" {{ old('type', $job->type) == 'gig' ? 'selected' : '' }}>Gig</option>
-                                <option value="nysc" {{ old('type', $job->type) == 'nysc' ? 'selected' : '' }}>NYSC PPA
-                                </option>
-
+                                <option value="nysc" {{ old('type', $job->type) == 'nysc' ? 'selected' : '' }}>NYSC PPA</option>
                             </select>
                             @error('type')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
 
-                        {{-- <div class="col-md-4 mb-4">
+                        <div class="col-md-4 mb-4">
                             <label class="form-label">Tier <span class="text-danger">*</span></label>
                             <select class="form-select @error('tier') is-invalid @enderror" name="tier" required>
-                                <option value="free" {{ old('tier', $job->tier) == 'free' ? 'selected' : '' }}>Free</option>
-                                <option value="premium" {{ old('tier', $job->tier) == 'premium' ? 'selected' : '' }}>Premium
-                                </option>
+                                <option value="free" {{ old('tier', $job->tier ?? '') == 'free' ? 'selected' : '' }}>Free</option>
+                                <option value="premium" {{ old('tier', $job->tier ?? '') == 'premium' ? 'selected' : '' }}>Premium</option>
+                                <option value="sponsored" {{ old('tier', $job->tier ?? '') == 'sponsored' ? 'selected' : '' }}>Sponsored</option>
                             </select>
                             @error('tier')
-                            <div class="invalid-feedback">{{ $message }}</div>
+                                <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
-                        </div> --}}
-
-                        <select class="form-select @error('tier') is-invalid @enderror" name="tier" required>
-                            <option value="free" {{ old('tier', $job->tier ?? '') == 'free' ? 'selected' : '' }}>Free</option>
-                            <option value="premium" {{ old('tier', $job->tier ?? '') == 'premium' ? 'selected' : '' }}>Premium
-                            </option>
-                            <option value="sponsored" {{ old('tier', $job->tier ?? '') == 'sponsored' ? 'selected' : '' }}>
-                                Sponsored</option>
-                        </select>
+                        </div>
 
                         <div class="col-md-6 mb-4">
                             <label class="form-label">Location <span class="text-danger">*</span></label>
@@ -112,38 +98,37 @@
 
                         <div class="col-md-12 mb-4">
                             <label class="form-label">Job Description <span class="text-danger">*</span></label>
-                            <textarea class="form-control @error('description') is-invalid @enderror" name="description"
-                                rows="6" required>{{ old('description', $job->description) }}</textarea>
+                            <textarea id="js-ckeditor-description" class="form-control @error('description') is-invalid @enderror"
+                                name="description" rows="6">{{ old('description', $job->description) }}</textarea>
                             @error('description')
-                                <div class="invalid-feedback">{{ $message }}</div>
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
                             @enderror
                         </div>
 
                         <div class="col-md-12 mb-4">
                             <label class="form-label">Responsibilities</label>
-                            <textarea class="form-control @error('responsibilities') is-invalid @enderror"
-                                name="responsibilities"
-                                rows="4">{{ old('responsibilities', $job->responsibilities) }}</textarea>
+                            <textarea id="js-ckeditor-responsibilities" class="form-control @error('responsibilities') is-invalid @enderror"
+                                name="responsibilities" rows="4">{{ old('responsibilities', $job->responsibilities) }}</textarea>
                             @error('responsibilities')
-                                <div class="invalid-feedback">{{ $message }}</div>
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
                             @enderror
                         </div>
 
                         <div class="col-md-12 mb-4">
                             <label class="form-label">Requirements</label>
-                            <textarea class="form-control @error('requirements') is-invalid @enderror" name="requirements"
-                                rows="4">{{ old('requirements', $job->requirements) }}</textarea>
+                            <textarea id="js-ckeditor-requirements" class="form-control @error('requirements') is-invalid @enderror"
+                                name="requirements" rows="4">{{ old('requirements', $job->requirements) }}</textarea>
                             @error('requirements')
-                                <div class="invalid-feedback">{{ $message }}</div>
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
                             @enderror
                         </div>
 
                         <div class="col-md-12 mb-4">
                             <label class="form-label">Benefits</label>
-                            <textarea class="form-control @error('benefits') is-invalid @enderror" name="benefits"
-                                rows="4">{{ old('benefits', $job->benefits) }}</textarea>
+                            <textarea id="js-ckeditor-benefits" class="form-control @error('benefits') is-invalid @enderror"
+                                name="benefits" rows="4">{{ old('benefits', $job->benefits) }}</textarea>
                             @error('benefits')
-                                <div class="invalid-feedback">{{ $message }}</div>
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
                             @enderror
                         </div>
 
@@ -189,14 +174,10 @@
                         <div class="col-md-4 mb-4">
                             <label class="form-label">Currency</label>
                             <select class="form-select @error('currency') is-invalid @enderror" name="currency">
-                                <option value="NGN" {{ old('currency', $job->currency) == 'NGN' ? 'selected' : '' }}>NGN
-                                </option>
-                                <option value="USD" {{ old('currency', $job->currency) == 'USD' ? 'selected' : '' }}>USD
-                                </option>
-                                <option value="EUR" {{ old('currency', $job->currency) == 'EUR' ? 'selected' : '' }}>EUR
-                                </option>
-                                <option value="GBP" {{ old('currency', $job->currency) == 'GBP' ? 'selected' : '' }}>GBP
-                                </option>
+                                <option value="NGN" {{ old('currency', $job->currency) == 'NGN' ? 'selected' : '' }}>NGN</option>
+                                <option value="USD" {{ old('currency', $job->currency) == 'USD' ? 'selected' : '' }}>USD</option>
+                                <option value="EUR" {{ old('currency', $job->currency) == 'EUR' ? 'selected' : '' }}>EUR</option>
+                                <option value="GBP" {{ old('currency', $job->currency) == 'GBP' ? 'selected' : '' }}>GBP</option>
                             </select>
                             @error('currency')
                                 <div class="invalid-feedback">{{ $message }}</div>
@@ -225,10 +206,8 @@
                         <div class="col-md-6 mb-4">
                             <label class="form-label">Company Logo</label>
                             @if($job->company_logo)
-
                                 <div class="mb-2">
-                                    <img src="{{ displayImage($job->company_logo) }}" alt="Current Logo"
-                                        style="max-height: 50px;">
+                                    <img src="{{ displayImage($job->company_logo) }}" alt="Current Logo" style="max-height: 50px;">
                                 </div>
                             @endif
 
@@ -242,11 +221,10 @@
 
                         <div class="col-md-12 mb-4">
                             <label class="form-label">Company Description</label>
-                            <textarea class="form-control @error('company_description') is-invalid @enderror"
-                                name="company_description"
-                                rows="4">{{ old('company_description', $job->company_description) }}</textarea>
+                            <textarea id="js-ckeditor-company-description" class="form-control @error('company_description') is-invalid @enderror"
+                                name="company_description" rows="4">{{ old('company_description', $job->company_description) }}</textarea>
                             @error('company_description')
-                                <div class="invalid-feedback">{{ $message }}</div>
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
                             @enderror
                         </div>
 
@@ -296,4 +274,30 @@
             </div>
         </form>
     </div>
+@endsection
+
+@section('script')
+    <script src="{{ asset('src/assets/js/plugins/ckeditor5-classic/build/ckeditor.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const editors = [
+                '#js-ckeditor-description',
+                '#js-ckeditor-responsibilities',
+                '#js-ckeditor-requirements',
+                '#js-ckeditor-benefits',
+                '#js-ckeditor-company-description'
+            ];
+
+            editors.forEach(selector => {
+                const element = document.querySelector(selector);
+                if (element) {
+                    ClassicEditor
+                        .create(element)
+                        .catch(error => {
+                            console.error(error);
+                        });
+                }
+            });
+        });
+    </script>
 @endsection
