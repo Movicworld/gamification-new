@@ -80,7 +80,7 @@
                                 <address class="fs-sm">
                                     &#8226; Naira Verified: {{$info->is_verified == '1' ? 'Verified' : 'Unverified'}} <br>
                                     &#8226; USD Verified: {{ $info->USD_verified == true ? 'Verified' : 'Unverified'}} <br>
-                                    &#8226; Referral: {{@$referredBy->name}}<br>
+                                    &#8226; Referral: {{@$referredBy->name ?? null}}<br>
                                     &#8226; Referral Code: {{@$info->referral_code}}<br>
                                     &#8226; Is Blocked:{{ @$info->is_blacklisted == true ? 'Yes' : 'No' }}<br>
                                     &#8226; Country: {{ $info->country }}<br>
