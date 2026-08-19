@@ -914,6 +914,51 @@ class AdminController extends Controller
         $ref = $user->referees()->paginate(50);
         return view('admin.users.referrals', ['ref' => $ref, 'user' => $user]);
     }
+
+    public function exportUserReferrals($id)
+    {
+        $user = User::where('id', $id)->first();
+
+        $filename = 'Referrals_' . $user->name . '_' . now()->format('Ymd_His') . '.csv';
+
+        $headers = [
+            'Content-Type'        => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+        ];
+
+        $callback = function () use ($user) {
+            $file = fopen('php://output', 'w');
+
+            fputcsv($file, ['Name', 'Email', 'Phone', 'Wallet Balance', 'Status', 'Date Joined']);
+
+            $user->referees()
+                ->with('wallet') // eager load, avoids N+1
+                ->orderBy('id')
+                ->chunk(500, function ($chunk) use ($file) {
+                    foreach ($chunk as $inf) {
+                        $balance = match ($inf->wallet?->base_currency) {
+                            'NGN'   => ($inf->wallet?->base_currency ?? '') . ' ' . number_format($inf->wallet->balance, 2),
+                            'USD'   => ($inf->wallet?->base_currency ?? '') . ' ' . number_format($inf->wallet->usd_balance, 2),
+                            default => ($inf->wallet?->base_currency ?? '') . ' ' . number_format($inf->wallet?->bonus ?? 0, 2),
+                        };
+
+                        fputcsv($file, [
+                            $inf->name,
+                            $inf->email,
+                            $inf->phone,
+                            $balance,
+                            $inf->is_verified == '1' ? 'Verified' : 'Unverified',
+                            $inf->created_at,
+                        ]);
+                    }
+                });
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
     public function adminUserJobs($id)
     {
         $user = User::where('id', $id)->first();
