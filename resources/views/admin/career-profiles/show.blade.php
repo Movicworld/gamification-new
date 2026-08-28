@@ -216,25 +216,39 @@
         </div>
     </div>
 
-    {{-- Experience --}}
-    <div class="block block-rounded">
-        <div class="block-header block-header-default">
-            <h3 class="block-title">Experience</h3>
-        </div>
-        <div class="block-content">
-            @forelse($profile->experiences as $exp)
-                <div class="cp-list-item">
-                    <strong>{{ $exp->position }}</strong> — {{ $exp->employer }}
-                    <div class="fs-xs text-muted">
-                        {{ \Carbon\Carbon::parse($exp->start_date)->format('M Y') }} –
-                        {{ $exp->end_date ? \Carbon\Carbon::parse($exp->end_date)->format('M Y') : 'Present' }}
-                    </div>
-                </div>
-            @empty
-                <p class="text-muted fs-sm mb-0">No experience added.</p>
-            @endforelse
-        </div>
+   {{-- Experience --}}
+<div class="block block-rounded">
+    <div class="block-header block-header-default">
+        <h3 class="block-title">Experience</h3>
     </div>
+    <div class="block-content">
+        @forelse($profile->experiences as $exp)
+            <div class="cp-list-item">
+                <strong>{{ $exp->position }}</strong> — {{ $exp->employer }}
+                <div class="fs-xs text-muted mb-2">
+                    {{ \Carbon\Carbon::parse($exp->start_date)->format('M Y') }} –
+                    {{ $exp->end_date ? \Carbon\Carbon::parse($exp->end_date)->format('M Y') : 'Present' }}
+                    @if($exp->employment_type) · {{ ucfirst(str_replace('-', ' ', $exp->employment_type)) }} @endif
+                    @if($exp->location) · {{ $exp->location }} @endif
+                </div>
+                @if($exp->responsibilities)
+                    <div class="fs-sm mb-1">
+                        <strong class="fs-xs text-muted d-block mb-1">Responsibilities</strong>
+                        {{ $exp->responsibilities }}
+                    </div>
+                @endif
+                @if($exp->achievements)
+                    <div class="fs-sm">
+                        <strong class="fs-xs text-muted d-block mb-1">Achievements</strong>
+                        {{ $exp->achievements }}
+                    </div>
+                @endif
+            </div>
+        @empty
+            <p class="text-muted fs-sm mb-0">No experience added.</p>
+        @endforelse
+    </div>
+</div>
 
     {{-- Education --}}
     <div class="block block-rounded">
@@ -268,5 +282,27 @@
             @endforelse
         </div>
     </div>
+
+    {{-- Social Profiles --}}
+<div class="block block-rounded">
+    <div class="block-header block-header-default">
+        <h3 class="block-title">Social Profiles</h3>
+    </div>
+    <div class="block-content">
+        @forelse($profile->socialProfiles as $social)
+            <div class="cp-list-item d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>{{ ucfirst($social->platform) }}</strong>
+                    <div class="fs-xs text-muted">{{ $social->url }}</div>
+                </div>
+                <a href="{{ $social->url }}" target="_blank" rel="noopener" class="btn btn-sm btn-alt-secondary">
+                    <i class="fa fa-external-link-alt opacity-50"></i>
+                </a>
+            </div>
+        @empty
+            <p class="text-muted fs-sm mb-0">No social profiles added.</p>
+        @endforelse
+    </div>
+</div>
 </div>
 @endsection
