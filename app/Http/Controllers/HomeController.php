@@ -448,9 +448,40 @@ class HomeController extends Controller
             WHERE status = ?
             AND created_at BETWEEN ? AND ?
         ', ['successful', $startDate, $endDate]);
+
+            // Multi-currency wallet liabilities breakdown
+            $data['currencyWallets'] = DB::table('wallets')
+                ->selectRaw("
+                    COALESCE(NULLIF(base_currency, ''), 'NGN') as currency,
+                    COUNT(*) as count,
+                    SUM(CASE 
+                        WHEN LOWER(COALESCE(NULLIF(base_currency, ''), 'NGN')) IN ('naira', 'ngn') THEN balance
+                        WHEN LOWER(COALESCE(NULLIF(base_currency, ''), 'NGN')) IN ('dollar', 'usd') THEN usd_balance
+                        ELSE base_currency_balance
+                    END) as total_active_balance
+                ")
+                ->groupBy('currency')
+                ->orderBy('total_active_balance', 'DESC')
+                ->get();
+
+            // Multi-currency pending withdrawals
+            $data['pendingWithdrawalsByCurrency'] = DB::table('withrawals')
+                ->where('status', 0)
+                ->selectRaw("COALESCE(NULLIF(base_currency, ''), 'NGN') as currency, COUNT(*) as count, SUM(amount) as total_amount")
+                ->groupBy('currency')
+                ->orderBy('total_amount', 'DESC')
+                ->get();
+
+            // Multi-currency paid withdrawals (period and all time)
+            $data['paidWithdrawalsByCurrency'] = DB::table('withrawals')
+                ->where('status', 1)
+                ->selectRaw("COALESCE(NULLIF(base_currency, ''), 'NGN') as currency, COUNT(*) as count, SUM(amount) as total_amount")
+                ->groupBy('currency')
+                ->orderBy('total_amount', 'DESC')
+                ->get();
+
+            $data['activeCurrencies'] = \App\Models\Currency::where('is_active', true)->get();
         }
-
-
 
         return view('admin.index_new', $data);
     }

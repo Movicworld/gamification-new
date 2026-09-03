@@ -2350,13 +2350,28 @@ if (!function_exists('viewCampaign')) {
 if (!function_exists('baseCurrency')) {
     function baseCurrency($user = null)
     {
-        if ($user == null) {
+        if ($user === null) {
             $user = Auth::user();
-            return Wallet::where('user_id', $user->id)->first()->base_currency;  // $user->wallet->base_currency;
-        } else {
-            $user = User::find($user->id);
-            return Wallet::where('user_id', $user->id)->first()->base_currency;  // $user->wallet->base_currency;
+        } elseif (is_numeric($user)) {
+            $user = User::find($user);
         }
+
+        if (!$user) {
+            return 'NGN';
+        }
+
+        $currency = $user->wallet->base_currency ?? $user->base_currency ?? null;
+        if (!$currency && isset($user->id)) {
+            $currency = Wallet::where('user_id', $user->id)->value('base_currency');
+        }
+
+        $currency = $currency ?: 'NGN';
+
+        return match (strtolower($currency)) {
+            'naira', 'ngn' => 'NGN',
+            'dollar', 'usd' => 'USD',
+            default => strtoupper($currency),
+        };
     }
 }
 
@@ -2822,14 +2837,114 @@ if (!function_exists('walletBalance')) {
     function walletBalance($userId)
     {
         $wallet = Wallet::where('user_id', $userId)->first();
-
-        if ($wallet->base_currency == 'NGN') {
-            return $wallet->balance;
-        } elseif ($wallet->base_currency == 'USD') {
-            return $wallet->usd_balance;
-        } else {
-            return $wallet->base_currency_balance;
+        if (!$wallet) {
+            return 0.00;
         }
+
+        $currency = strtoupper($wallet->base_currency ?? 'NGN');
+        if (in_array($currency, ['NGN', 'NAIRA'])) {
+            return (float) $wallet->balance;
+        } elseif (in_array($currency, ['USD', 'DOLLAR'])) {
+            return (float) $wallet->usd_balance;
+        } else {
+            return (float) $wallet->base_currency_balance;
+        }
+    }
+}
+
+if (!function_exists('formatCurrency')) {
+    function formatCurrency($amount, $currencyCode = 'NGN')
+    {
+        $code = strtoupper($currencyCode ?? 'NGN');
+        $amount = (float) $amount;
+        $formattedAmount = number_format($amount, 2);
+
+        return match ($code) {
+            'NGN', 'NAIRA' => '₦' . $formattedAmount,
+            'USD', 'DOLLAR' => '$' . $formattedAmount,
+            'GHS' => 'GH₵' . $formattedAmount,
+            'KES' => 'KSh ' . $formattedAmount,
+            'ZAR' => 'R ' . $formattedAmount,
+            'GBP' => '£' . $formattedAmount,
+            'EUR' => '€' . $formattedAmount,
+            'RWF' => 'FRw ' . $formattedAmount,
+            'UGX' => 'USh ' . $formattedAmount,
+            'TZS' => 'TSh ' . $formattedAmount,
+            'XOF', 'XAF' => $formattedAmount . ' FCFA',
+            default => $code . ' ' . $formattedAmount,
+        };
+    }
+}
+
+if (!function_exists('currencySymbol')) {
+    function currencySymbol($currencyCode = 'NGN')
+    {
+        $code = strtoupper($currencyCode ?? 'NGN');
+        return match ($code) {
+            'NGN', 'NAIRA' => '₦',
+            'USD', 'DOLLAR' => '$',
+            'GHS' => 'GH₵',
+            'KES' => 'KSh',
+            'ZAR' => 'R',
+            'GBP' => '£',
+            'EUR' => '€',
+            'RWF' => 'FRw',
+            'UGX' => 'USh',
+            'TZS' => 'TSh',
+            'XOF', 'XAF' => 'FCFA',
+            default => $code,
+        };
+    }
+}
+
+if (!function_exists('convertUserCurrency')) {
+    function convertUserCurrency($amount, $from, $to)
+    {
+        $from = strtoupper($from);
+        $to = strtoupper($to);
+        if ($from === $to) {
+            return ['amount' => (float) $amount, 'rate' => 1.0, 'source' => 'identity'];
+        }
+
+        $conversion = \App\Models\ConversionRate::where('from', $from)
+            ->where('to', $to)
+            ->where('status', true)
+            ->first();
+
+        if ($conversion && $conversion->rate > 0) {
+            $rate = (float) $conversion->rate;
+            return [
+                'amount' => (float) round($amount * $rate, 2),
+                'rate'   => $rate,
+                'source' => 'conversion_table'
+            ];
+        }
+
+        // Check reverse rate
+        $reverseConversion = \App\Models\ConversionRate::where('from', $to)
+            ->where('to', $from)
+            ->where('status', true)
+            ->first();
+
+        if ($reverseConversion && $reverseConversion->rate > 0) {
+            $rate = 1 / (float) $reverseConversion->rate;
+            return [
+                'amount' => (float) round($amount * $rate, 2),
+                'rate'   => (float) round($rate, 6),
+                'source' => 'reverse_table'
+            ];
+        }
+
+        // Fallback to currency base_rate
+        $fromRate = (float) (\App\Models\Currency::where('code', $from)->value('base_rate') ?: 1);
+        $toRate = (float) (\App\Models\Currency::where('code', $to)->value('base_rate') ?: 1);
+
+        $rate = $fromRate > 0 ? ($toRate / $fromRate) : 1;
+        return [
+            'amount' => (float) round($amount * $rate, 2),
+            'rate'   => (float) round($rate, 6),
+            'source' => 'base_rate'
+        ];
     }
 }
 

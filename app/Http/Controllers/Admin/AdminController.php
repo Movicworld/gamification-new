@@ -392,7 +392,7 @@ class AdminController extends Controller
 
     public function userList(Request $request)
     {
-        $query = User::where('role', 'regular');
+        $query = User::where('role', 'regular')->with(['wallet', 'profile']);
 
         // Date filtering
         if ($request->filled('start_date')) {
@@ -403,7 +403,29 @@ class AdminController extends Controller
             $query->whereDate('created_at', '<=', $request->end_date);
         }
 
-        $users = $query->latest()->paginate(100);
+        // Currency filtering
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $curr = strtoupper($request->currency);
+            $query->where(function ($q) use ($curr) {
+                $q->where('base_currency', $curr)
+                  ->orWhereHas('wallet', function ($wq) use ($curr) {
+                      $wq->where('base_currency', $curr);
+                  });
+            });
+        }
+
+        // Search query
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%")
+                  ->orWhere('referral_code', 'like', "%{$search}%");
+            });
+        }
+
+        $users = $query->latest()->paginate(50);
 
         // Get count for phone numbers button (efficient query)
         $phoneCount = User::where('role', 'regular')
@@ -418,9 +440,13 @@ class AdminController extends Controller
             $phoneCount->whereDate('created_at', '<=', $request->end_date);
         }
 
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+
         return view('admin.users.list', [
             'users' => $users,
-            'phoneCount' => $phoneCount->count()
+            'phoneCount' => $phoneCount->count(),
+            'activeCurrencies' => $activeCurrencies,
+            'selectedCurrency' => $request->get('currency', 'ALL'),
         ]);
     }
 
@@ -541,23 +567,40 @@ class AdminController extends Controller
     //     return view('admin.users.search_result', ['users' => $users]);
     // }
 
-    public function  userSearch(Request $request)
+    public function userSearch(Request $request)
     {
-        $search = $request->input('search');
-        $search = $request->input('q');
+        $search = $request->input('search') ?: $request->input('q');
 
-        $users = User::where('role', 'regular')
-            ->when($search, function ($query, $search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('name', 'LIKE', "%{$search}%")
-                        ->orWhere('email', 'LIKE', "%{$search}%")
-                        ->orWhere('phone', 'LIKE', "%{$search}%")
-                        ->orWhere('referral_code', 'LIKE', "%{$search}%");
-                });
-            })->latest()
-            ->paginate(100);
+        $query = User::where('role', 'regular')->with(['wallet', 'profile']);
 
-        return view('admin.users.search_result', compact('users'));
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'LIKE', "%{$search}%")
+                    ->orWhere('email', 'LIKE', "%{$search}%")
+                    ->orWhere('phone', 'LIKE', "%{$search}%")
+                    ->orWhere('referral_code', 'LIKE', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $curr = strtoupper($request->currency);
+            $query->where(function ($q) use ($curr) {
+                $q->where('base_currency', $curr)
+                  ->orWhereHas('wallet', function ($wq) use ($curr) {
+                      $wq->where('base_currency', $curr);
+                  });
+            });
+        }
+
+        $users = $query->latest()->paginate(50);
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+
+        return view('admin.users.list', [
+            'users' => $users,
+            'phoneCount' => 0,
+            'activeCurrencies' => $activeCurrencies,
+            'selectedCurrency' => $request->get('currency', 'ALL'),
+        ]);
     }
 
 
@@ -864,20 +907,22 @@ class AdminController extends Controller
 
     public function userInfo($id)
     {
-        // $info = User::where('id', $id)->first();
-        $info = User::withCount(['myCampaigns', 'referees', 'myJobs'])->where('id', $id)->first();
-        @$user = Referral::where('user_id', $id)->first()->referee_id;
-        @$referredBy = User::where('id', $user)->first();
+        $info = User::withCount(['myCampaigns', 'referees', 'myJobs'])
+            ->with(['wallet', 'accountDetails', 'virtualAccount', 'profile', 'USD_verified'])
+            ->where('id', $id)
+            ->firstOrFail();
+
+        $refereeId = Referral::where('user_id', $id)->value('referee_id');
+        $referredBy = $refereeId ? User::find($refereeId) : null;
         $bankList = bankList();
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+
         return view('admin.users.user_info_new', [
             'info' => $info,
             'referredBy' => $referredBy,
-            'bankList' => $bankList
+            'bankList' => $bankList,
+            'activeCurrencies' => $activeCurrencies,
         ]);
-        // return view('admin.users.user_info', ['info' => $info, 'referredBy' => $referredBy,
-        // 'bankList' => $bankList
-        // ]);
-
     }
 
     public function toggleBusinessAccount(Request $request)
@@ -1218,38 +1263,78 @@ class AdminController extends Controller
 
     public function withdrawalRequest(Request $request)
     {
-        $query = Withrawal::where('status', '1')->orderBy('created_at', 'DESC');
+        $query = Withrawal::where('status', '1')->with(['user.wallet', 'accountDetails'])->orderBy('created_at', 'DESC');
 
         if ($request->has('search') && $request->search != '') {
             $search = $request->search;
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
-                    ->orWhere('email', 'like', '%' . $search . '%')
-                    ->orWhere('phone', 'like', '%' . $search . '%');
-            })->orWhere('amount', 'like', '%' . $search . '%')
-                ->orWhere('paypal_email', 'like', '%' . $search . '%');
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('user', function ($uq) use ($search) {
+                    $uq->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('email', 'like', '%' . $search . '%')
+                        ->orWhere('phone', 'like', '%' . $search . '%');
+                })->orWhere('amount', 'like', '%' . $search . '%')
+                  ->orWhere('paypal_email', 'like', '%' . $search . '%');
+            });
         }
 
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $curr = strtoupper($request->currency);
+            $query->where('base_currency', $curr);
+        }
+
+        $currencyTotals = Withrawal::where('status', '1')
+            ->selectRaw("COALESCE(NULLIF(base_currency, ''), 'NGN') as currency, count(*) as count, sum(amount) as total_amount")
+            ->groupBy('currency')
+            ->orderBy('total_amount', 'DESC')
+            ->get();
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
         $withdrawal = $query->paginate(50);
-        return view('admin.withdrawals.sent', ['withdrawals' => $withdrawal]);
+
+        return view('admin.withdrawals.sent', [
+            'withdrawals' => $withdrawal,
+            'currencyTotals' => $currencyTotals,
+            'activeCurrencies' => $activeCurrencies,
+            'selectedCurrency' => $request->get('currency', 'ALL'),
+        ]);
     }
 
     public function withdrawalRequestQueued(Request $request)
     {
-        $query = Withrawal::where('status', '0')->orderBy('created_at', 'DESC');
+        $query = Withrawal::where('status', '0')->with(['user.wallet', 'accountDetails'])->orderBy('created_at', 'DESC');
 
         if ($request->has('search') && $request->search != '') {
             $search = $request->search;
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
-                    ->orWhere('email', 'like', '%' . $search . '%')
-                    ->orWhere('phone', 'like', '%' . $search . '%');
-            })->orWhere('amount', 'like', '%' . $search . '%')
-                ->orWhere('paypal_email', 'like', '%' . $search . '%');
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('user', function ($uq) use ($search) {
+                    $uq->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('email', 'like', '%' . $search . '%')
+                        ->orWhere('phone', 'like', '%' . $search . '%');
+                })->orWhere('amount', 'like', '%' . $search . '%')
+                  ->orWhere('paypal_email', 'like', '%' . $search . '%');
+            });
         }
 
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $curr = strtoupper($request->currency);
+            $query->where('base_currency', $curr);
+        }
+
+        $currencyTotals = Withrawal::where('status', '0')
+            ->selectRaw("COALESCE(NULLIF(base_currency, ''), 'NGN') as currency, count(*) as count, sum(amount) as total_amount")
+            ->groupBy('currency')
+            ->orderBy('total_amount', 'DESC')
+            ->get();
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
         $withdrawal = $query->paginate(50);
-        return view('admin.withdrawals.queued', ['withdrawals' => $withdrawal]);
+
+        return view('admin.withdrawals.queued', [
+            'withdrawals' => $withdrawal,
+            'currencyTotals' => $currencyTotals,
+            'activeCurrencies' => $activeCurrencies,
+            'selectedCurrency' => $request->get('currency', 'ALL'),
+        ]);
     }
 
     public function withdrawalRequestQueuedCurrent(Request $request)
@@ -1257,23 +1342,43 @@ class AdminController extends Controller
         $start_week = Carbon::now()->startOfWeek();
         $end_week = Carbon::now()->endOfWeek();
 
-        //$withdrawal = Withrawal::where('status', '0')->orderBy('created_at', 'DESC')->paginate(50);
-
         $query = Withrawal::where('status', false)
-            ->whereBetween('created_at', [$start_week, $end_week]);
+            ->whereBetween('created_at', [$start_week, $end_week])
+            ->with(['user.wallet', 'accountDetails']);
 
         if ($request->has('search') && $request->search != '') {
             $search = $request->search;
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'like', '%' . $search . '%')
-                    ->orWhere('email', 'like', '%' . $search . '%')
-                    ->orWhere('phone', 'like', '%' . $search . '%');
-            })->orWhere('amount', 'like', '%' . $search . '%')
-                ->orWhere('paypal_email', 'like', '%' . $search . '%');
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('user', function ($uq) use ($search) {
+                    $uq->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('email', 'like', '%' . $search . '%')
+                        ->orWhere('phone', 'like', '%' . $search . '%');
+                })->orWhere('amount', 'like', '%' . $search . '%')
+                  ->orWhere('paypal_email', 'like', '%' . $search . '%');
+            });
         }
 
-        $withdrawal = $query->paginate(10);
-        return view('admin.withdrawals.current_week', ['withdrawals' => $withdrawal]);
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $curr = strtoupper($request->currency);
+            $query->where('base_currency', $curr);
+        }
+
+        $currencyTotals = Withrawal::where('status', false)
+            ->whereBetween('created_at', [$start_week, $end_week])
+            ->selectRaw("COALESCE(NULLIF(base_currency, ''), 'NGN') as currency, count(*) as count, sum(amount) as total_amount")
+            ->groupBy('currency')
+            ->orderBy('total_amount', 'DESC')
+            ->get();
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $withdrawal = $query->paginate(50);
+
+        return view('admin.withdrawals.current_week', [
+            'withdrawals' => $withdrawal,
+            'currencyTotals' => $currencyTotals,
+            'activeCurrencies' => $activeCurrencies,
+            'selectedCurrency' => $request->get('currency', 'ALL'),
+        ]);
     }
 
     public function upgradeUserNaira($id)
