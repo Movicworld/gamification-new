@@ -18,6 +18,7 @@ use App\Mail\UpgradeUser;
 use App\Models\BankInformation;
 use App\Models\Campaign;
 use App\Models\CampaignWorker;
+use App\Models\Currency;
 use App\Models\ManualVerification;
 use App\Models\DataBundle;
 use App\Models\DisputedJobs;
@@ -203,27 +204,59 @@ class AdminController extends Controller
         // return view('admin.campaign_metric.index', ['analytics' => $dashbordMetrics]);
     }
 
-    public function campaignDisputes()
+    public function campaignDisputes(Request $request)
     {
-        $disputes = CampaignWorker::where('is_dispute', true)->where('is_dispute_resolved', false)->orderBy('created_at', 'DESC')->paginate(50);
-        return view('admin.campaign_mgt.disputes', ['disputes' => $disputes]);
+        $query = CampaignWorker::where('is_dispute', true)
+            ->where('is_dispute_resolved', false)
+            ->with(['campaign.user', 'user']);
+
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->whereHas('campaign', function ($q) use ($request) {
+                $q->where('currency', $request->currency);
+            });
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('campaign', function ($c) use ($search) {
+                    $c->where('post_title', 'like', "%{$search}%")
+                      ->orWhere('job_id', 'like', "%{$search}%");
+                })->orWhereHas('user', function ($u) use ($search) {
+                    $u->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $disputes = $query->orderBy('created_at', 'DESC')->paginate(50)->appends($request->query());
+
+        return view('admin.campaign_mgt.disputes', [
+            'disputes' => $disputes,
+            'activeCurrencies' => $activeCurrencies
+        ]);
     }
 
     public function campaignDisputesForFlagged($id)
     {
         $disputes = CampaignWorker::where('is_dispute', true)
-            ->where(
-                'campaign_id',
-                $id
-            )->orderBy('created_at', 'DESC')->paginate(50);
-        return view('admin.campaign_mgt.disputes', ['disputes' => $disputes]);
+            ->where('campaign_id', $id)
+            ->with(['campaign.user', 'user'])
+            ->orderBy('created_at', 'DESC')
+            ->paginate(50);
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+
+        return view('admin.campaign_mgt.disputes', [
+            'disputes' => $disputes,
+            'activeCurrencies' => $activeCurrencies
+        ]);
     }
 
     public function campaignDisputesView($id)
     {
-        $workdisputed = CampaignWorker::where('id', $id)->first();
-        //$workdisputed->campaign;
-        // return $disputedJobInfo = DisputedJobs::where('campaign_worker_id', $workdisputed->id)->first();
+        $workdisputed = CampaignWorker::where('id', $id)->with(['campaign.user', 'user'])->first();
         return view('admin.campaign_mgt.view_dispute', ['campaign' => $workdisputed]);
     }
 
@@ -243,8 +276,10 @@ class AdminController extends Controller
         $campaign = Campaign::where('id', $workDone->campaign_id)->first();
 
         $disputeJob = DisputedJobs::where('campaign_worker_id', $workDone->id)->first();
-        $disputeJob->response = $request->reason;
-        $disputeJob->save();
+        if ($disputeJob) {
+            $disputeJob->response = $request->reason;
+            $disputeJob->save();
+        }
 
         if ($request->status == 'Approved') {
 
@@ -253,7 +288,6 @@ class AdminController extends Controller
             if ($approvedJob >= $campaign->number_of_staff) {
                 return back()->with('error', 'Task has reached its maximum number of staff');
             }
-
 
             //update completed action
             $campaign->completed_count += 1;
@@ -264,20 +298,10 @@ class AdminController extends Controller
 
             setIsComplete($workDone->campaign_id);
             $user = User::where('id', $workDone->user_id)->first();
-            if ($campaign->currency == 'NGN') {
-                $currency = 'NGN';
-                $channel = 'paystack';
-                creditWallet($user, $currency, $workDone->amount);
-            } elseif ($campaign->currency == 'USD') {
-                $currency = 'USD';
-                $channel = 'paypal';
-                creditWallet($user, $currency, $workDone->amount);
-            } else {
-                $currency = baseCurrency($user);
-                $channel = 'flutterwave';
-                creditWallet($user, $currency, $workDone->amount);
-            }
 
+            $currency = $campaign->currency ?: 'NGN';
+            creditWallet($user, $currency, $workDone->amount);
+            $channel = $currency === 'USD' ? 'paypal' : ($currency === 'NGN' ? 'paystack' : 'system');
 
             $ref = time();
 
@@ -886,21 +910,78 @@ class AdminController extends Controller
         );
     }
 
-    public function adminTransaction()
+    public function adminTransaction(Request $request)
     {
-        $list = PaymentTransaction::where(
-            'user_type',
-            'admin'
-        )->where('status', 'successful')->latest()->paginate(50);
-        return view('admin.admin_transactions', ['lists' => $list]);
+        $query = PaymentTransaction::where('user_type', 'admin')
+            ->where('status', 'successful')
+            ->with('user');
+
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('reference', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('type', 'like', "%{$search}%");
+            });
+        }
+
+        $currencyTotals = PaymentTransaction::where('user_type', 'admin')
+            ->where('status', 'successful')
+            ->select('currency', DB::raw('SUM(amount) as total_amount'), DB::raw('COUNT(*) as count'))
+            ->groupBy('currency')
+            ->get();
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $list = $query->latest()->paginate(50)->appends($request->query());
+
+        return view('admin.admin_transactions', [
+            'lists' => $list,
+            'currencyTotals' => $currencyTotals,
+            'activeCurrencies' => $activeCurrencies,
+        ]);
     }
-    public function userTransaction()
+
+    public function userTransaction(Request $request)
     {
-        $list = PaymentTransaction::where(
-            'user_type',
-            'regular'
-        )->where('status', 'successful')->latest()->paginate(50);
-        return view('admin.users.user_transactions', ['lists' => $list]);
+        $query = PaymentTransaction::where('user_type', 'regular')
+            ->where('status', 'successful')
+            ->with('user');
+
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('reference', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%")
+                    ->orWhere('type', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($uq) use ($search) {
+                        $uq->where('name', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $currencyTotals = PaymentTransaction::where('user_type', 'regular')
+            ->where('status', 'successful')
+            ->select('currency', DB::raw('SUM(amount) as total_amount'), DB::raw('COUNT(*) as count'))
+            ->groupBy('currency')
+            ->get();
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $list = $query->latest()->paginate(50)->appends($request->query());
+
+        return view('admin.users.user_transactions', [
+            'lists' => $list,
+            'currencyTotals' => $currencyTotals,
+            'activeCurrencies' => $activeCurrencies,
+        ]);
     }
 
 
@@ -1381,28 +1462,127 @@ class AdminController extends Controller
         ]);
     }
 
+    public function upgradeUser($id)
+    {
+        $admin = auth()->user();
+        if (!$admin || (!$admin->hasRole('admin') && !$admin->hasRole('super_admin') && $admin->role !== 'admin' && $admin->role !== 'super_admin')) {
+            return back()->with('error', 'Unauthorized action');
+        }
+
+        $getUser = User::with(['wallet', 'USD_verified'])->findOrFail($id);
+        $currency = $getUser->currency_code;
+        $isCurrentlyVerified = $getUser->isVerifiedInCurrency();
+
+        if ($isCurrentlyVerified) {
+            // Unverify
+            $getUser->is_verified = 0;
+            $getUser->verified_at = null;
+            $getUser->save();
+
+            Usdverified::where('user_id', $getUser->id)->delete();
+
+            return back()->with('success', "User {$getUser->name} unverified successfully!");
+        } else {
+            // Verify
+            $getUser->is_verified = 1;
+            $getUser->verified_at = now();
+            $getUser->save();
+
+            if ($currency === 'USD') {
+                Usdverified::updateOrCreate(
+                    ['user_id' => $getUser->id],
+                    ['referral_id' => null, 'is_paid' => false, 'amount' => 0]
+                );
+            }
+
+            $currencyParams = Currency::where('code', $currency)->first() ?: currencyParameter($currency);
+            $upgradeAmount = $currencyParams->upgrade_fee ?? 0;
+            $referralCommission = $currencyParams->referral_commission ?? 0;
+            $ref = time();
+
+            PaymentTransaction::create([
+                'user_id' => $getUser->id,
+                'campaign_id' => '1',
+                'reference' => $ref,
+                'amount' => $upgradeAmount,
+                'balance' => walletBalance($getUser->id),
+                'status' => 'successful',
+                'currency' => $currency,
+                'channel' => 'admin_manual',
+                'type' => 'upgrade_payment',
+                'description' => "Manual Upgrade Payment - {$currency}",
+                'tx_type' => 'Credit',
+                'user_type' => 'regular',
+            ]);
+
+            // Handle referral bonus
+            $referee = Referral::where('user_id', $getUser->id)->first();
+            if ($referee && $referralCommission > 0) {
+                $refereeUser = User::find($referee->referee_id);
+                if ($refereeUser) {
+                    $refereeProfile = Profile::where('user_id', $refereeUser->id)->first();
+                    $isCelebrity = $refereeProfile ? (bool) $refereeProfile->is_celebrity : false;
+
+                    if (!$isCelebrity) {
+                        $refereeCurrency = $refereeUser->currency_code;
+                        $commissionAmount = $referralCommission;
+
+                        if ($currency !== $refereeCurrency) {
+                            $conversion = convertUserCurrency($referralCommission, $currency, $refereeCurrency);
+                            $commissionAmount = $conversion['amount'];
+                        }
+
+                        creditWallet($refereeUser, $refereeCurrency, $commissionAmount);
+
+                        $referee->is_paid = 1;
+                        $referee->save();
+
+                        PaymentTransaction::create([
+                            'user_id' => $refereeUser->id,
+                            'campaign_id' => '1',
+                            'reference' => $ref,
+                            'amount' => $commissionAmount,
+                            'balance' => walletBalance($refereeUser->id),
+                            'status' => 'successful',
+                            'currency' => $refereeCurrency,
+                            'channel' => 'referral',
+                            'type' => 'referer_bonus',
+                            'description' => "Referer Bonus from {$getUser->name}",
+                            'tx_type' => 'Credit',
+                            'user_type' => 'regular',
+                        ]);
+                    }
+                }
+            }
+
+            $name = $getUser->name;
+            activityLog($getUser, 'account_verification', $name . ' account verification', 'regular');
+
+            try {
+                Mail::to($getUser->email)->send(new UpgradeUser($getUser));
+            } catch (\Exception $e) {
+                // Ignore mail delivery failure
+            }
+
+            app(NotificationHelpers::class)->createNotification(
+                $getUser,
+                'Account Verified',
+                "{$name}, your account has been verified in {$currency}.",
+                'upgrade'
+            );
+
+            return back()->with('success', "User {$getUser->name} upgraded/verified successfully in {$currency}!");
+        }
+    }
+
     public function upgradeUserNaira($id)
     {
+        return $this->upgradeUser($id);
+    }
 
-        if (auth()->user()->hasRole('admin')) {
-
-            $getUser = User::where('id', $id)->first();
-
-            $status = $getUser->is_verified;
-
-            switch ($status) {
-                case "1":
-                    $this->unverifyNairaUser($id);
-                    return back()->with('success', 'User unverified!');
-                    break;
-                case "0":
-                    $this->verifyNairaUser($id);
-                    return back()->with('success', 'Upgrade Successful');
-                    break;
-                default:
-                    echo "Invalid";
-            }
-        }
+    public function upgradeUserDollar($id)
+    {
+        return $this->upgradeUser($id);
     }
 
     private function verifyNairaUser($id)
@@ -1539,30 +1719,6 @@ class AdminController extends Controller
         return $getUser;
     }
 
-    public function upgradeUserDollar($id)
-    {
-
-        if (auth()->user()->hasRole('admin')) {
-
-            $getUser = User::where('id', $id)->first();
-
-            $status = $getUser->USD_verified ? '1' : '0';
-
-            switch ($status) {
-                case "1":
-                    $this->unverifyUsdUser($id);
-                    return back()->with('success', 'User Unverified Successfully!');
-                    break;
-                case "0":
-                    $this->verifyUsdUser($id); // handles global verification
-                    return back()->with('success', 'Upgrade Successful');
-                    break;
-                default:
-                    echo "Invalid";
-            }
-        }
-    }
-
     private function verifyUsdUser($id)
     {
 
@@ -1675,21 +1831,31 @@ class AdminController extends Controller
 
     public function campaignList(Request $request)
     {
-        $campaigns = Campaign::where('status', 'Live')
-            ->when($request->search, function ($query) use ($request) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('post_title', 'like', "%{$request->search}%")
-                        ->orWhere('job_id', 'like', "%{$request->search}%")
-                        ->orWhereHas('user', function ($userQuery) use ($request) {
-                            $userQuery->where('name', 'like', "%{$request->search}%");
-                        });
-                });
-            })
-            ->orderBy('id', 'DESC')
-            ->paginate(100)
-            ->appends(['search' => $request->search]);
+        $query = Campaign::where('status', 'Live')
+            ->with(['user', 'campaignType', 'campaignCategory']);
 
-        return view('admin.campaign_list', ['campaigns' => $campaigns]);
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('post_title', 'like', "%{$search}%")
+                    ->orWhere('job_id', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($userQuery) use ($search) {
+                        $userQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $campaigns = $query->orderBy('id', 'DESC')->paginate(100)->appends($request->query());
+
+        return view('admin.campaign_list', [
+            'campaigns' => $campaigns,
+            'activeCurrencies' => $activeCurrencies
+        ]);
     }
 
     public function priotize($id)
@@ -1746,38 +1912,47 @@ class AdminController extends Controller
 
     public function deniedCampaigns(Request $request)
     {
-        $list = Campaign::where('status', 'Decline')
-            ->when($request->search, function ($query) use ($request) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('post_title', 'like', "%{$request->search}%")
-                        ->orWhere('job_id', 'like', "%{$request->search}%")
-                        ->orWhereHas('user', function ($userQuery) use ($request) {
-                            $userQuery->where('name', 'like', "%{$request->search}%");
-                        });
-                });
-            })
-            ->orderBy('created_at', 'DESC')
-            ->paginate(10)
-            ->appends(['search' => $request->search]);
+        $query = Campaign::where('status', 'Decline')
+            ->with(['user', 'campaignType', 'campaignCategory']);
 
-        return view('admin.denied_list', ['campaigns' => $list]);
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('post_title', 'like', "%{$search}%")
+                    ->orWhere('job_id', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($userQuery) use ($search) {
+                        $userQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $list = $query->orderBy('created_at', 'DESC')->paginate(20)->appends($request->query());
+
+        return view('admin.denied_list', [
+            'campaigns' => $list,
+            'activeCurrencies' => $activeCurrencies
+        ]);
     }
+
     public function jobReversal($id)
     {
         $list = CampaignWorker::where('id', $id)->first();
         $list->status = 'Pending';
         $list->save();
 
-        $campaignAmount = Campaign::where('id', $list->campaign_id)->first(); //get campaign information
-        //debit worker
-        $wallet = Wallet::where('user_id', $list->user_id)->first();
-        $wallet->balance -= $campaignAmount->campaign_amount;
-        $wallet->save();
+        $campaignAmount = Campaign::where('id', $list->campaign_id)->first();
+        $cCurrency = $campaignAmount->currency ?: 'NGN';
 
-        //credit campaigner
-        $wallet = Wallet::where('user_id', $campaignAmount->user_id)->first();
-        $wallet->balance += $campaignAmount->campaign_amount;
-        $wallet->save();
+        // debit worker
+        debitWallet($list->user, $cCurrency, $campaignAmount->campaign_amount);
+
+        // credit campaigner
+        creditWallet($campaignAmount->user, $cCurrency, $campaignAmount->campaign_amount);
 
         $ref = time();
 
@@ -1788,8 +1963,8 @@ class AdminController extends Controller
             'amount' => $campaignAmount->campaign_amount,
             'balance' => walletBalance($list->user_id),
             'status' => 'successful',
-            'currency' => 'NGN',
-            'channel' => 'paystack',
+            'currency' => $cCurrency,
+            'channel' => 'system',
             'type' => 'campaign_job_reversal',
             'description' => 'Reversal of job revenue on ' . $campaignAmount->post_title,
             'tx_type' => 'Debit',
@@ -1797,14 +1972,14 @@ class AdminController extends Controller
         ]);
 
         PaymentTransaction::create([
-            'user_id' =>  $campaignAmount->user_id,
+            'user_id' => $campaignAmount->user_id,
             'campaign_id' => $campaignAmount->id,
             'reference' => $ref,
             'amount' => $campaignAmount->campaign_amount,
             'balance' => walletBalance($campaignAmount->user_id),
             'status' => 'successful',
-            'currency' => 'NGN',
-            'channel' => 'paystack',
+            'currency' => $cCurrency,
+            'channel' => 'system',
             'type' => 'campaign_job_reversal_credit',
             'description' => 'Reversal of amount spent on ' . $campaignAmount->post_title,
             'tx_type' => 'Credit',
@@ -1813,10 +1988,10 @@ class AdminController extends Controller
 
         $user = User::where('id', $campaignAmount->user_id)->first();
         $subject = 'Job Reversal';
+        $formattedAmt = formatCurrency($campaignAmount->campaign_amount, $cCurrency);
 
-        $content = 'Your request to for task reversal is successful. A total of NGN' . $campaignAmount->campaign_amount . ' has been credited to your wallet from ' . $campaignAmount->post_title . ' job';
+        $content = 'Your request for task reversal is successful. A total of ' . $formattedAmt . ' has been credited to your wallet from ' . $campaignAmount->post_title . ' job.';
         Mail::to($user->email)->send(new GeneralMail($user, $content, $subject, ''));
-
 
         return back()->with('success', 'Reversal Successful');
     }
@@ -2461,43 +2636,59 @@ class AdminController extends Controller
 
     public function campaignPending(Request $request)
     {
-        $pendingCampaign = Campaign::where('status', 'Offline')
-            ->when($request->search, function ($query) use ($request) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('post_title', 'like', "%{$request->search}%")
-                        ->orWhere('job_id', 'like', "%{$request->search}%")
-                        ->orWhereHas('user', function ($userQuery) use ($request) {
-                            $userQuery->where('name', 'like', "%{$request->search}%");
-                        });
-                });
-            })
-            ->orderBy('created_at', 'DESC')
-            ->paginate(50)
-            ->appends(['search' => $request->search]);
+        $query = Campaign::where('status', 'Offline')
+            ->with(['user', 'campaignType', 'campaignCategory']);
 
-        return view('admin.pending_campaigns', ['campaigns' => $pendingCampaign]);
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('post_title', 'like', "%{$search}%")
+                    ->orWhere('job_id', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($userQuery) use ($search) {
+                        $userQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $pendingCampaign = $query->orderBy('created_at', 'DESC')->paginate(50)->appends($request->query());
+
+        return view('admin.pending_campaigns', [
+            'campaigns' => $pendingCampaign,
+            'activeCurrencies' => $activeCurrencies
+        ]);
     }
 
     // Add these methods to your Admin Controller
 
     public function flaggedCampaigns(Request $request)
     {
-        $campaigns = Campaign::where('status', 'Flagged')
-            ->when($request->search, function ($query) use ($request) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('post_title', 'like', "%{$request->search}%")
-                        ->orWhere('job_id', 'like', "%{$request->search}%")
-                        ->orWhereHas('user', function ($userQuery) use ($request) {
-                            $userQuery->where('name', 'like', "%{$request->search}%");
-                        });
-                });
-            })
-            ->with(['user', 'attempts'])
-            ->orderBy('flagged_at', 'DESC')
-            ->paginate(50)
-            ->appends(['search' => $request->search]);
+        $query = Campaign::where('status', 'Flagged')
+            ->with(['user', 'attempts']);
 
-        return view('admin.flagged_campaigns', compact('campaigns'));
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('post_title', 'like', "%{$search}%")
+                    ->orWhere('job_id', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($userQuery) use ($search) {
+                        $userQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $campaigns = $query->orderBy('flagged_at', 'DESC')->paginate(50)->appends($request->query());
+
+        return view('admin.flagged_campaigns', compact('campaigns', 'activeCurrencies'));
     }
 
 
@@ -2591,15 +2782,14 @@ class AdminController extends Controller
         $camp = Campaign::where('id', $request->id)->first(); //find($request->id);
 
         if ($request->status == 'Decline') {
-            // return $status;
             $amount = $camp->total_amount;
             $camp->status = $request->status;
             $camp->save();
 
-            //reverse the money
-            $userWallet = Wallet::where('user_id', $camp->user_id)->first();
-            $userWallet->balance += $amount;
-            $userWallet->save();
+            $currency = $camp->currency ?: 'NGN';
+
+            // reverse the money to user's assigned currency wallet
+            creditWallet($camp->user, $currency, $amount);
 
             $est_amount = $camp->number_of_staff * $camp->campaign_amount;
 
@@ -2608,12 +2798,12 @@ class AdminController extends Controller
             } else {
                 $percent = (60 / 100) * $est_amount;
             }
-            // $percent = (60 / 100) * $est_amount;
             $adminCom = $est_amount - $percent;
 
-            $adminWallet = Wallet::where('user_id', '1')->first();
-            $adminWallet->balance -= $adminCom;
-            $adminWallet->save();
+            $adminUser = User::find(1);
+            if ($adminUser && $adminCom > 0) {
+                debitWallet($adminUser, $currency, $adminCom);
+            }
 
             PaymentTransaction::create([
                 'user_id' => $camp->user_id,
@@ -2622,8 +2812,8 @@ class AdminController extends Controller
                 'amount' => $amount,
                 'balance' => walletBalance($camp->user_id),
                 'status' => 'successful',
-                'currency' => 'NGN',
-                'channel' => 'paystack',
+                'currency' => $currency,
+                'channel' => 'system',
                 'type' => 'campaign_reversal',
                 'description' => 'Campaign Reversal for ' . $camp->post_title,
                 'tx_type' => 'Credit',
@@ -2932,160 +3122,123 @@ class AdminController extends Controller
 
     public function adminWalletTopUp(Request $request)
     {
+        $admin = auth()->user();
+        if (!$admin || (!$admin->hasRole('admin') && !$admin->hasRole('super_admin') && $admin->role !== 'admin' && $admin->role !== 'super_admin')) {
+            return back()->with('error', 'Unauthorized access');
+        }
 
-        $user = auth()->user();
+        $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'amount' => 'required|numeric|min:0.01',
+            'type' => 'required|in:credit,debit',
+            'currency' => 'nullable|string',
+            'reason' => 'nullable|string',
+        ]);
 
-        if ($user->hasRole('admin')) {
+        $targetUser = User::with('wallet')->findOrFail($request->user_id);
+        $wallet = $targetUser->wallet ?: Wallet::firstOrCreate(
+            ['user_id' => $targetUser->id],
+            ['balance' => 0, 'usd_balance' => 0, 'base_currency_balance' => 0, 'base_currency' => $targetUser->currency_code]
+        );
 
-            if ($request->type == 'credit') {
-                $currency = '';
-                $channel = '';
-                if ($request->currency == 'NGN') {
-                    $currency = 'NGN';
-                    $channel = 'paystack';
-                    $wallet = Wallet::where('user_id', $request->user_id)->first();
-                    $wallet->balance += $request->amount;
-                    $wallet->save();
-                } elseif ($request->currency == 'USD') {
-                    $currency = 'USD';
-                    $channel = 'paypal';
-                    $wallet = Wallet::where('user_id', $request->user_id)->first();
-                    $wallet->usd_balance += $request->amount;
-                    $wallet->save();
-                } else {
-                    $currency = $request->currency;
-                    $channel = 'flutterwave';
-                    $wallet = Wallet::where('user_id', $request->user_id)->first();
-                    $wallet->base_currency_balance += $request->amount;
-                    $wallet->save();
-                }
+        // Use requested currency or fallback to target user's active currency
+        $currency = $request->filled('currency') ? strtoupper($request->currency) : $targetUser->currency_code;
+        $amount = (float) $request->amount;
+        $channel = 'admin_manual';
 
-                PaymentTransaction::create([
-                    'user_id' => $request->user_id,
-                    'campaign_id' => '1',
-                    'reference' => time(),
-                    'amount' => $request->amount,
-                    'balance' => walletBalance($request->user_id),
-                    'status' => 'successful',
-                    'currency' => $currency,
-                    'channel' => $channel,
-                    'type' => 'wallet_topup',
-                    'description' => 'Manual Wallet Topup',
-                    'tx_type' => 'Credit',
-                    'user_type' => 'regular'
-                ]);
-
-                // PaystackHelpers::paymentTrasanction($request->user_id, '1', time(), $request->amount, 'successful', 'wallet_topup', 'Manual Wallet Topup', 'Credit', 'regular');
-                $content = 'Your wallet has been succesfully credited with NGN' . $request->amount . '. Thank you for choosing Freebyz.com';
-                $subject = 'Wallet Topup';
-                $user = User::where('id', $request->user_id)->first();
-                Mail::to($user->email)->send(new GeneralMail($user, $content, $subject, ''));
-                app(NotificationHelpers::class)->createNotification(
-                    $user,
-                    'Wallet Topup',
-                    'Your wallet has been succesfully credited with NGN' . $request->amount . '. Thank you for choosing Freebyz.com',
-                    'wallet'
-                );
-                return back()->with('success', 'Wallet Successfully Funded');
+        if ($request->type === 'credit') {
+            if (in_array($currency, ['NGN', 'NAIRA'])) {
+                $wallet->balance += $amount;
+            } elseif (in_array($currency, ['USD', 'DOLLAR'])) {
+                $wallet->usd_balance += $amount;
             } else {
-                $currency = '';
-                $channel = '';
-                if ($request->currency == 'NGN') {
-                    $currency = 'NGN';
-                    $channel = 'paystack';
-                    $wallet = Wallet::where('user_id', $request->user_id)->first();
-                    $wallet->balance -= $request->amount;
-                    $wallet->save();
-                } elseif ($request->currency == 'USD') {
-                    $currency = 'USD';
-                    $channel = 'paypal';
-                    $wallet = Wallet::where('user_id', $request->user_id)->first();
-                    $wallet->usd_balance -= $request->amount;
-                    $wallet->save();
-                } else {
-                    $currency = $request->currency;
-                    $channel = 'flutterwave';
-                    $wallet = Wallet::where('user_id', $request->user_id)->first();
-                    $wallet->base_currency_balance -= $request->amount;
-                    $wallet->save();
-                }
-
-                PaymentTransaction::create([
-                    'user_id' => $request->user_id,
-                    'campaign_id' => '1',
-                    'reference' => time(),
-                    'amount' => $request->amount,
-                    'balance' => walletBalance($request->user_id),
-                    'status' => 'successful',
-                    'currency' => $currency,
-                    'channel' => $channel,
-                    'type' => 'wallet_debit',
-                    'description' => 'Admin manual Wallet Debit',
-                    'tx_type' => 'Debit',
-                    'user_type' => 'regular'
-                ]);
-                $content = $request->reason;
-                $subject = 'Wallet Debit';
-                $user = User::where('id', $request->user_id)->first();
-                Mail::to($user->email)->send(new GeneralMail($user, $content, $subject, ''));
-                app(NotificationHelpers::class)->createNotification(
-                    $user,
-                    'Wallet Debit',
-                    'Your wallet has been debited with ' . $currency . number_format($request->amount) . '. Reason: ' . $request->reason,
-                    'wallet'
-                );
-                return back()->with('success', 'Wallet Successfully Debitted');
+                $wallet->base_currency_balance += $amount;
             }
-        } else {
+            $wallet->save();
 
-
-            $currency = '';
-            $channel = '';
-            if ($request->currency == 'NGN') {
-                $currency = 'NGN';
-                $channel = 'paystack';
-                $wallet = Wallet::where('user_id', $request->user_id)->first();
-                $wallet->balance -= $request->amount;
-                $wallet->save();
-            } elseif ($request->currency == 'USD') {
-                $currency = 'USD';
-                $channel = 'paypal';
-                $wallet = Wallet::where('user_id', $request->user_id)->first();
-                $wallet->usd_balance -= $request->amount;
-                $wallet->save();
-            } else {
-                $currency = $request->currency;
-                $channel = 'flutterwave';
-                $wallet = Wallet::where('user_id', $request->user_id)->first();
-                $wallet->base_currency_balance -= $request->amount;
-                $wallet->save();
-            }
+            $formattedAmount = formatCurrency($amount, $currency);
+            $newBalance = walletBalance($targetUser->id);
 
             PaymentTransaction::create([
-                'user_id' => $request->user_id,
+                'user_id' => $targetUser->id,
                 'campaign_id' => '1',
-                'reference' => time(),
-                'amount' => $request->amount,
-                'balance' => walletBalance($request->user_id),
+                'reference' => 'TOPUP_' . time() . '_' . rand(100, 999),
+                'amount' => $amount,
+                'balance' => $newBalance,
+                'status' => 'successful',
+                'currency' => $currency,
+                'channel' => $channel,
+                'type' => 'wallet_topup',
+                'description' => 'Admin manual Wallet Credit' . ($request->reason ? ': ' . $request->reason : ''),
+                'tx_type' => 'Credit',
+                'user_type' => 'regular'
+            ]);
+
+            $content = "Your wallet has been successfully credited with {$formattedAmount}. Thank you for choosing Freebyz.";
+            $subject = 'Wallet Topup Successful';
+            Mail::to($targetUser->email)->send(new GeneralMail($targetUser, $content, $subject, ''));
+            app(NotificationHelpers::class)->createNotification(
+                $targetUser,
+                'Wallet Topup',
+                $content,
+                'wallet'
+            );
+
+            return back()->with('success', "Wallet successfully credited with {$formattedAmount}");
+        } else {
+            // Debit
+            $currentBalance = 0;
+            if (in_array($currency, ['NGN', 'NAIRA'])) {
+                $currentBalance = (float) $wallet->balance;
+            } elseif (in_array($currency, ['USD', 'DOLLAR'])) {
+                $currentBalance = (float) $wallet->usd_balance;
+            } else {
+                $currentBalance = (float) $wallet->base_currency_balance;
+            }
+
+            if ($currentBalance < $amount) {
+                return back()->with('error', "Insufficient funds for debit. User currently has " . formatCurrency($currentBalance, $currency));
+            }
+
+            if (in_array($currency, ['NGN', 'NAIRA'])) {
+                $wallet->balance -= $amount;
+            } elseif (in_array($currency, ['USD', 'DOLLAR'])) {
+                $wallet->usd_balance -= $amount;
+            } else {
+                $wallet->base_currency_balance -= $amount;
+            }
+            $wallet->save();
+
+            $formattedAmount = formatCurrency($amount, $currency);
+            $newBalance = walletBalance($targetUser->id);
+
+            PaymentTransaction::create([
+                'user_id' => $targetUser->id,
+                'campaign_id' => '1',
+                'reference' => 'DEBIT_' . time() . '_' . rand(100, 999),
+                'amount' => $amount,
+                'balance' => $newBalance,
                 'status' => 'successful',
                 'currency' => $currency,
                 'channel' => $channel,
                 'type' => 'wallet_debit',
-                'description' => 'Admin manual Wallet Debit',
+                'description' => 'Admin manual Wallet Debit: ' . ($request->reason ?: 'Administrative debit'),
                 'tx_type' => 'Debit',
                 'user_type' => 'regular'
             ]);
-            $content = $request->reason;
-            $subject = 'Wallet Debit';
-            $user = User::where('id', $request->user_id)->first();
+
+            $reasonText = $request->reason ? " Reason: {$request->reason}." : '';
+            $content = "Your wallet has been debited with {$formattedAmount}.{$reasonText}";
+            $subject = 'Wallet Debit Notice';
+            Mail::to($targetUser->email)->send(new GeneralMail($targetUser, $content, $subject, ''));
             app(NotificationHelpers::class)->createNotification(
-                $user,
+                $targetUser,
                 'Wallet Debit',
-                'Your wallet has been debited with ' . $currency . number_format($request->amount) . '. Reason: ' . $request->reason,
+                $content,
                 'wallet'
             );
-            // Mail::to($user->email)->send(new GeneralMail($user, $content, $subject, ''));
-            return back()->with('success', 'Wallet Successfully Debitted');
+
+            return back()->with('success', "Wallet successfully debited by {$formattedAmount}");
         }
     }
 
@@ -3100,26 +3253,58 @@ class AdminController extends Controller
         return back()->with('success', 'User Updated to Celebrity Successfully');
     }
 
-    public function campaignCompleted()
+    public function campaignCompleted(Request $request)
     {
-        $campaigns = Campaign::where('status', 'Live')->where('is_completed', 1)->orderBy('created_at', 'DESC')->get();
-        return view('admin.campaign_completed', ['campaigns' => $campaigns]);
+        $query = Campaign::where('status', 'Live')
+            ->where('is_completed', 1)
+            ->with(['user', 'campaignType', 'campaignCategory']);
+
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('post_title', 'like', "%{$search}%")
+                    ->orWhere('job_id', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($userQuery) use ($search) {
+                        $userQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $campaigns = $query->orderBy('created_at', 'DESC')->paginate(50)->appends($request->query());
+
+        return view('admin.campaign_completed', [
+            'campaigns' => $campaigns,
+            'activeCurrencies' => $activeCurrencies
+        ]);
     }
 
     public function campaignPaused(Request $request)
     {
-        $campaigns = Campaign::where('status', 'Paused')
-            ->when($request->search, function ($query) use ($request) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('post_title', 'like', "%{$request->search}%")
-                        ->orWhere('job_id', 'like', "%{$request->search}%")
-                        ->orWhereHas('user', function ($userQuery) use ($request) {
-                            $userQuery->where('name', 'like', "%{$request->search}%");
-                        });
-                });
-            })
-            ->with(['user', 'campaignType', 'campaignCategory'])
-            ->withCount([
+        $query = Campaign::where('status', 'Paused')
+            ->with(['user', 'campaignType', 'campaignCategory']);
+
+        if ($request->filled('currency') && $request->currency !== 'ALL') {
+            $query->where('currency', $request->currency);
+        }
+
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('post_title', 'like', "%{$search}%")
+                    ->orWhere('job_id', 'like', "%{$search}%")
+                    ->orWhereHas('user', function ($userQuery) use ($search) {
+                        $userQuery->where('name', 'like', "%{$search}%");
+                    });
+            });
+        }
+
+        $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
+        $campaigns = $query->withCount([
                 'attempts as pending_count' => function ($q) {
                     $q->where('status', 'Pending');
                 },
@@ -3128,10 +3313,13 @@ class AdminController extends Controller
                 }
             ])
             ->orderBy('created_at', 'DESC')
-            ->paginate(20)
-            ->appends(['search' => $request->search]);
+            ->paginate(50)
+            ->appends($request->query());
 
-        return view('admin.campaign_paused', ['campaigns' => $campaigns]);
+        return view('admin.campaign_paused', [
+            'campaigns' => $campaigns,
+            'activeCurrencies' => $activeCurrencies
+        ]);
     }
 
     public function unpauseCampaign($id)
@@ -3161,19 +3349,104 @@ class AdminController extends Controller
 
     public function switch(Request $request)
     {
+        $admin = auth()->user();
+        if (!$admin || (!$admin->hasRole('admin') && !$admin->hasRole('super_admin') && $admin->role !== 'admin' && $admin->role !== 'super_admin')) {
+            return back()->with('error', 'Unauthorized action');
+        }
 
-        $switchWallet = Wallet::where('user_id', $request->user_id)->first();
-        $switchWallet->base_currency = $request->currency;
-        $switchWallet->save();
+        $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'currency' => 'required|string|max:10',
+        ]);
 
-        //     if($switchWallet->base_currency == 'Dollar'){
-        //         $switchWallet->base_currency == 'Naira';
-        //         $switchWallet->save();
-        //     }elseif($switchWallet->base_currency == 'Naira'){
-        //         $switchWallet->base_currency == 'Dollar';
-        //         $switchWallet->save();
-        //     }
-        return back()->with('success', 'Currency switched successfully');
+        $user = User::with('wallet')->findOrFail($request->user_id);
+        $targetCurrency = strtoupper($request->currency);
+        $wallet = $user->wallet ?: Wallet::firstOrCreate(
+            ['user_id' => $user->id],
+            ['balance' => 0, 'usd_balance' => 0, 'base_currency_balance' => 0, 'base_currency' => $targetCurrency]
+        );
+        $oldCurrency = $user->currency_code;
+
+        if ($oldCurrency === $targetCurrency) {
+            return back()->with('info', "User is already assigned to {$targetCurrency}.");
+        }
+
+        // Get live old balance
+        $oldBalance = 0.00;
+        if (in_array($oldCurrency, ['NGN', 'NAIRA'])) {
+            $oldBalance = (float) $wallet->balance;
+        } elseif (in_array($oldCurrency, ['USD', 'DOLLAR'])) {
+            $oldBalance = (float) $wallet->usd_balance;
+        } else {
+            $oldBalance = (float) $wallet->base_currency_balance;
+        }
+
+        $convertedAmount = 0.00;
+        $conversionRate = 1.0;
+
+        if ($oldBalance > 0) {
+            $conversion = convertUserCurrency($oldBalance, $oldCurrency, $targetCurrency);
+            $convertedAmount = $conversion['amount'];
+            $conversionRate = $conversion['rate'];
+
+            // Clear old balance column
+            if (in_array($oldCurrency, ['NGN', 'NAIRA'])) {
+                $wallet->balance = 0.00;
+            } elseif (in_array($oldCurrency, ['USD', 'DOLLAR'])) {
+                $wallet->usd_balance = 0.00;
+            } else {
+                $wallet->base_currency_balance = 0.00;
+            }
+
+            // Set new balance column
+            if (in_array($targetCurrency, ['NGN', 'NAIRA'])) {
+                $wallet->balance = $convertedAmount;
+            } elseif (in_array($targetCurrency, ['USD', 'DOLLAR'])) {
+                $wallet->usd_balance = $convertedAmount;
+            } else {
+                $wallet->base_currency_balance = $convertedAmount;
+            }
+        }
+
+        // Update base currency on both Wallet and User
+        $wallet->base_currency = $targetCurrency;
+        $wallet->save();
+
+        $user->base_currency = $targetCurrency;
+        $user->save();
+
+        // Audit Trail
+        if ($oldBalance > 0) {
+            $ref = 'CONV_' . time() . '_' . rand(100, 999);
+            PaymentTransaction::create([
+                'user_id' => $user->id,
+                'campaign_id' => '1',
+                'reference' => $ref,
+                'amount' => $convertedAmount,
+                'balance' => $convertedAmount,
+                'status' => 'successful',
+                'currency' => $targetCurrency,
+                'channel' => 'system_conversion',
+                'type' => 'currency_conversion',
+                'description' => "Admin currency switch from {$oldCurrency} to {$targetCurrency} @ rate {$conversionRate} (Converted from " . formatCurrency($oldBalance, $oldCurrency) . ")",
+                'tx_type' => 'Conversion',
+                'user_type' => 'regular'
+            ]);
+
+            app(NotificationHelpers::class)->createNotification(
+                $user,
+                'Currency Switched',
+                "Your account currency has been updated from {$oldCurrency} to {$targetCurrency}. Your previous balance (" . formatCurrency($oldBalance, $oldCurrency) . ") was converted to " . formatCurrency($convertedAmount, $targetCurrency) . " (Rate: {$conversionRate}).",
+                'wallet'
+            );
+        }
+
+        $msg = "Currency successfully switched from {$oldCurrency} to {$targetCurrency}.";
+        if ($oldBalance > 0) {
+            $msg .= " Converted " . formatCurrency($oldBalance, $oldCurrency) . " -> " . formatCurrency($convertedAmount, $targetCurrency) . " (Rate: {$conversionRate})";
+        }
+
+        return back()->with('success', $msg);
     }
 
     public function updateUserAccountDetails(Request $request)

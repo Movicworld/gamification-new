@@ -2906,44 +2906,28 @@ if (!function_exists('convertUserCurrency')) {
             return ['amount' => (float) $amount, 'rate' => 1.0, 'source' => 'identity'];
         }
 
-        $conversion = \App\Models\ConversionRate::where('from', $from)
-            ->where('to', $to)
-            ->where('status', true)
-            ->first();
+        $baseCurr = (float) getBaseRate($from);
+        $target = (float) getBaseRate($to);
 
-        if ($conversion && $conversion->rate > 0) {
-            $rate = (float) $conversion->rate;
+        if ($baseCurr > 0 && $target > 0) {
+            $rate = $target / $baseCurr;
+            $convertedAmount = (float) round($amount * $rate, 2);
+
             return [
-                'amount' => (float) round($amount * $rate, 2),
-                'rate'   => $rate,
-                'source' => 'conversion_table'
-            ];
-        }
-
-        // Check reverse rate
-        $reverseConversion = \App\Models\ConversionRate::where('from', $to)
-            ->where('to', $from)
-            ->where('status', true)
-            ->first();
-
-        if ($reverseConversion && $reverseConversion->rate > 0) {
-            $rate = 1 / (float) $reverseConversion->rate;
-            return [
-                'amount' => (float) round($amount * $rate, 2),
+                'amount' => $convertedAmount,
                 'rate'   => (float) round($rate, 6),
-                'source' => 'reverse_table'
+                'source' => 'base_rate'
             ];
         }
 
-        // Fallback to currency base_rate
-        $fromRate = (float) (\App\Models\Currency::where('code', $from)->value('base_rate') ?: 1);
-        $toRate = (float) (\App\Models\Currency::where('code', $to)->value('base_rate') ?: 1);
+        // Fallback to currencyConverter
+        $converted = currencyConverter($from, $to, $amount);
+        $calculatedRate = $amount > 0 ? (float) round($converted / $amount, 6) : 1.0;
 
-        $rate = $fromRate > 0 ? ($toRate / $fromRate) : 1;
         return [
-            'amount' => (float) round($amount * $rate, 2),
-            'rate'   => (float) round($rate, 6),
-            'source' => 'base_rate'
+            'amount' => $converted,
+            'rate'   => $calculatedRate,
+            'source' => 'currency_converter'
         ];
     }
 }

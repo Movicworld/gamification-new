@@ -479,6 +479,7 @@ Route::get('admin/user/jobs/{id}', [\App\Http\Controllers\Admin\AdminController:
 Route::post('admin/user/transactions/verify/{reference}', [\App\Http\Controllers\Admin\AdminController::class, 'verify'])->name('transactions.verify');
 
 Route::post('admin/toggle/business', [\App\Http\Controllers\Admin\AdminController::class, 'toggleBusinessAccount'])->name('admin.toggle.business');
+Route::post('admin/user/toggle-business', [\App\Http\Controllers\Admin\AdminController::class, 'toggleBusinessAccount'])->name('admin.user.toggle-business');
 Route::get('user/{id}/info', [\App\Http\Controllers\Admin\AdminController::class, 'userInfo']);
 Route::get('admin/withdrawal/request', [\App\Http\Controllers\Admin\AdminController::class, 'withdrawalRequest'])->name('admin.withdrawal');
 Route::get('admin/withdrawal/request/queued', [\App\Http\Controllers\Admin\AdminController::class, 'withdrawalRequestQueued'])->name('admin.withdrawal.queued');
