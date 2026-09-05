@@ -177,30 +177,208 @@
                     <div class="block-content fs-sm">
                         @if($info->accountDetails && $info->accountDetails->account_number)
                             <div class="mb-3 p-3 bg-light rounded">
-                                <div class="fw-bold text-dark mb-1"><i class="fa fa-university me-1 text-primary"></i> Payout Bank Account</div>
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <div class="fw-bold text-dark"><i class="fa fa-university me-1 text-primary"></i> Payout Account Details</div>
+                                    <span class="badge-currency badge-currency-{{ strtolower($info->accountDetails->currency ?? $userCurr) }} fs-xs">
+                                        {{ $info->accountDetails->currency ?? $userCurr }}
+                                    </span>
+                                </div>
                                 <div><strong>Name:</strong> {{ $info->accountDetails->name }}</div>
-                                <div><strong>Bank:</strong> {{ $info->accountDetails->bank_name }}</div>
-                                <div><strong>Account Number:</strong> <span class="font-monospace fw-bold">{{ $info->accountDetails->account_number }}</span></div>
+                                <div><strong>Bank / Provider:</strong> {{ $info->accountDetails->bank_name }}</div>
+                                <div><strong>Account / Phone Number:</strong> <span class="font-monospace fw-bold">{{ $info->accountDetails->account_number }}</span></div>
+                                <div class="mt-2 text-end">
+                                    <button type="button" class="btn btn-xs btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#quickEditPayoutCard" aria-expanded="false">
+                                        <i class="fa fa-edit me-1"></i> Edit Payout Details
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Collapsible Edit Form -->
+                            <div class="collapse mb-3" id="quickEditPayoutCard">
+                                <div class="p-3 border rounded bg-white shadow-sm">
+                                    <h6 class="fw-bold mb-2 text-primary fs-xs text-uppercase"><i class="fa fa-edit me-1"></i> Update Payout Account ({{ $userCurr }})</h6>
+                                    <form action="{{ route('admin.update.account.details') }}" method="POST">
+                                        @csrf
+                                        <input type="hidden" name="user_id" value="{{ $info->id }}">
+
+                                        @if(in_array($userCurr, ['GHS', 'KES', 'UGX']))
+                                            <div class="mb-2">
+                                                <div class="d-flex gap-3 fs-xs">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="radio" name="method" id="quickEditMethodBank" value="bank" checked onchange="toggleQuickEditMethodFields('bank')">
+                                                        <label class="form-check-label" for="quickEditMethodBank">Bank</label>
+                                                    </div>
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="radio" name="method" id="quickEditMethodMomo" value="mobile_money" onchange="toggleQuickEditMethodFields('mobile_money')">
+                                                        <label class="form-check-label" for="quickEditMethodMomo">Mobile Money</label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        @else
+                                            <input type="hidden" name="method" value="bank">
+                                        @endif
+
+                                        <div class="mb-2" id="quickEditBankSelectGroup">
+                                            <label class="form-label fs-xs fw-semibold">Bank <span class="text-danger">*</span></label>
+                                            <select class="form-select form-select-sm" name="bank_code" id="quickEditBankCodeSelect" required>
+                                                <option value="">-- Select Bank --</option>
+                                                @foreach ($bankList as $bank)
+                                                    <option value="{{ $bank['code'] }}" {{ @$info->accountDetails->bank_code == $bank['code'] ? 'selected' : '' }}>
+                                                        {{ $bank['name'] }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+
+                                        @if(!empty($mobileMoneyNetworks))
+                                            <div class="mb-2 d-none" id="quickEditMomoSelectGroup">
+                                                <label class="form-label fs-xs fw-semibold">Network <span class="text-danger">*</span></label>
+                                                <select class="form-select form-select-sm" name="momo_network" id="quickEditMomoNetworkSelect">
+                                                    <option value="">-- Select Network --</option>
+                                                    @foreach ($mobileMoneyNetworks as $net)
+                                                        <option value="{{ $net['code'] }}" {{ @$info->accountDetails->bank_code == $net['code'] ? 'selected' : '' }}>
+                                                            {{ $net['name'] }}
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                        @endif
+
+                                        <div class="mb-2">
+                                            <label class="form-label fs-xs fw-semibold" id="quickEditAccountNumberLabel">Account / Phone Number <span class="text-danger">*</span></label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" name="account_number" id="quickEditAccountNumberInput"
+                                                placeholder="{{ $userCurr === 'NGN' ? '10-digit NGN Account Number' : 'Account or Mobile Phone Number' }}" required value="{{ @$info->accountDetails->account_number }}">
+                                        </div>
+
+                                        <div class="mb-2">
+                                            <label class="form-label fs-xs fw-semibold">Account Holder Name (Optional / Override)</label>
+                                            <input type="text" class="form-control form-control-sm" name="account_name" id="quickEditAccountNameInput"
+                                                placeholder="Auto-resolve via API or type override" value="{{ @$info->accountDetails->name }}">
+                                            <div id="quickEditAccountNameStatus" class="form-text fs-xs mt-1"></div>
+                                        </div>
+
+                                        <div class="mt-2 text-end">
+                                            <button type="submit" class="btn btn-sm btn-primary">
+                                                <i class="fa fa-save me-1"></i> Update Details
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
                             </div>
                         @else
-                            <div class="mb-3 p-3 bg-light rounded text-muted">
-                                <i class="fa fa-info-circle me-1"></i> No payout bank account details on file.
+                            <!-- Inline Form: Add Payout Account for User -->
+                            <div class="mb-3 p-3 border border-primary-subtle rounded bg-light">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="fw-bold text-dark"><i class="fa fa-plus-circle me-1 text-primary"></i> Add Payout Account ({{ $userCurr }})</div>
+                                    <span class="badge-currency badge-currency-{{ strtolower($userCurr) }} fs-xs">{{ $userCurr }}</span>
+                                </div>
+
+                                <form action="{{ route('admin.update.account.details') }}" method="POST">
+                                    @csrf
+                                    <input type="hidden" name="user_id" value="{{ $info->id }}">
+
+                                    @if(in_array($userCurr, ['GHS', 'KES', 'UGX']))
+                                        <div class="mb-2">
+                                            <label class="form-label fs-xs fw-semibold">Payout Channel Method <span class="text-danger">*</span></label>
+                                            <div class="d-flex gap-3 fs-xs">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="radio" name="method" id="quickMethodBank" value="bank" checked onchange="toggleQuickMethodFields('bank')">
+                                                    <label class="form-check-label" for="quickMethodBank">Bank Account</label>
+                                                </div>
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="radio" name="method" id="quickMethodMomo" value="mobile_money" onchange="toggleQuickMethodFields('mobile_money')">
+                                                    <label class="form-check-label" for="quickMethodMomo">Mobile Money</label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @else
+                                        <input type="hidden" name="method" value="bank">
+                                    @endif
+
+                                    <div class="mb-2" id="quickBankSelectGroup">
+                                        <label class="form-label fs-xs fw-semibold">Bank Name <span class="text-danger">*</span></label>
+                                        <select class="form-select form-select-sm" name="bank_code" id="quickBankCodeSelect" required>
+                                            <option value="">-- Select Bank --</option>
+                                            @foreach ($bankList as $bank)
+                                                <option value="{{ $bank['code'] }}">{{ $bank['name'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    @if(!empty($mobileMoneyNetworks))
+                                        <div class="mb-2 d-none" id="quickMomoSelectGroup">
+                                            <label class="form-label fs-xs fw-semibold">Mobile Money Network <span class="text-danger">*</span></label>
+                                            <select class="form-select form-select-sm" name="momo_network" id="quickMomoNetworkSelect">
+                                                <option value="">-- Select Network --</option>
+                                                @foreach ($mobileMoneyNetworks as $net)
+                                                    <option value="{{ $net['code'] }}">{{ $net['name'] }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    @endif
+
+                                    <div class="mb-2">
+                                        <label class="form-label fs-xs fw-semibold" id="quickAccountNumberLabel">Account / Phone Number <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control form-control-sm font-monospace" name="account_number" id="quickAccountNumberInput"
+                                            placeholder="{{ $userCurr === 'NGN' ? '10-digit NGN Account Number' : 'Account or Mobile Phone Number' }}" required>
+                                    </div>
+
+                                    <div class="mb-2">
+                                        <label class="form-label fs-xs fw-semibold">Account Holder Name (Optional / Override)</label>
+                                        <input type="text" class="form-control form-control-sm" name="account_name" id="quickAccountNameInput"
+                                            placeholder="Auto-resolved via API if left empty">
+                                        <div id="quickAccountNameStatus" class="form-text fs-xs mt-1">
+                                            <span class="text-muted">Will auto-resolve with {{ $userCurr === 'NGN' ? 'Paystack' : 'Flutterwave' }} as you type.</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-2 text-end">
+                                        <button type="submit" class="btn btn-sm btn-primary">
+                                            <i class="fa fa-save me-1"></i> Save Payout Details
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
                         @endif
 
-                        @if($info->virtualAccount)
+                        @if($info->virtualAccount && $info->virtualAccount->account_number)
                             <div class="p-3 bg-light rounded">
-                                <div class="fw-bold text-dark mb-1"><i class="fa fa-credit-card me-1 text-success"></i> Freebyz Dedicated Virtual Account</div>
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <div class="fw-bold text-dark"><i class="fa fa-credit-card me-1 text-success"></i> Freebyz Dedicated Virtual Account</div>
+                                    <span class="badge bg-success-light text-success fs-xs text-uppercase">{{ $info->virtualAccount->channel ?? 'Active' }}</span>
+                                </div>
                                 <div><strong>Bank:</strong> {{ $info->virtualAccount->bank_name }}</div>
                                 <div><strong>Account Name:</strong> {{ $info->virtualAccount->account_name }}</div>
                                 <div><strong>Account Number:</strong> <span class="font-monospace fw-bold">{{ $info->virtualAccount->account_number }}</span></div>
+                                <div class="mt-2 text-end">
+                                    <a href="{{ url('reactivate/virtual/account/' . $info->id) }}" class="btn btn-xs btn-outline-secondary" onclick="return confirm('Regenerate virtual account for this user?')">
+                                        <i class="fa fa-sync me-1"></i> Regenerate
+                                    </a>
+                                </div>
                             </div>
                         @elseif($userCurr === 'NGN')
                             <div class="p-3 bg-light rounded d-flex align-items-center justify-content-between">
-                                <span class="text-muted">Virtual account not generated yet.</span>
-                                <a href="{{ url('reactivate/virtual/account/' . $info->id) }}" class="btn btn-sm btn-outline-success">
-                                    <i class="fa fa-plus me-1"></i> Generate NGN Virtual Account
+                                <div>
+                                    <div class="fw-semibold text-dark">NGN Virtual Account</div>
+                                    <span class="text-muted fs-xs">Wema Bank static virtual account via Interswitch</span>
+                                </div>
+                                <a href="{{ url('reactivate/virtual/account/' . $info->id) }}" class="btn btn-sm btn-success">
+                                    <i class="fa fa-plus me-1"></i> Generate (Interswitch)
                                 </a>
+                            </div>
+                        @elseif($userCurr === 'GHS')
+                            <div class="p-3 bg-light rounded d-flex align-items-center justify-content-between">
+                                <div>
+                                    <div class="fw-semibold text-dark">GHS Virtual Account</div>
+                                    <span class="text-muted fs-xs">GHS static virtual account via Flutterwave</span>
+                                </div>
+                                <a href="{{ url('reactivate/virtual/account/' . $info->id) }}" class="btn btn-sm btn-success">
+                                    <i class="fa fa-plus me-1"></i> Generate (Flutterwave)
+                                </a>
+                            </div>
+                        @else
+                            <div class="p-3 bg-light rounded text-muted">
+                                <i class="fa fa-info-circle me-1"></i> Static virtual accounts are not available for {{ $userCurr }} users.
                             </div>
                         @endif
                     </div>
@@ -338,10 +516,23 @@
                             @if($userCurr === 'NGN')
                                 <hr class="my-4">
                                 <div class="text-center">
-                                    <h5 class="fs-sm fw-bold text-muted text-uppercase mb-2">Dedicated Virtual Account (Wema/Monnify)</h5>
-                                    <a href="{{ url('reactivate/virtual/account/' . $info->id) }}" class="btn btn-sm btn-outline-primary">
-                                        <i class="fa fa-sync me-1"></i> Generate / Regenerate Virtual Account
+                                    <h5 class="fs-sm fw-bold text-muted text-uppercase mb-2">Dedicated Virtual Account (Interswitch / Wema)</h5>
+                                    <a href="{{ url('reactivate/virtual/account/' . $info->id) }}" class="btn btn-sm btn-outline-success" onclick="return confirm('Generate or regenerate NGN Interswitch virtual account?')">
+                                        <i class="fa fa-sync me-1"></i> Generate / Regenerate NGN Virtual Account
                                     </a>
+                                </div>
+                            @elseif($userCurr === 'GHS')
+                                <hr class="my-4">
+                                <div class="text-center">
+                                    <h5 class="fs-sm fw-bold text-muted text-uppercase mb-2">Dedicated Virtual Account (Flutterwave GHS)</h5>
+                                    <a href="{{ url('reactivate/virtual/account/' . $info->id) }}" class="btn btn-sm btn-outline-success" onclick="return confirm('Generate or regenerate GHS Flutterwave virtual account?')">
+                                        <i class="fa fa-sync me-1"></i> Generate / Regenerate GHS Virtual Account
+                                    </a>
+                                </div>
+                            @else
+                                <hr class="my-4">
+                                <div class="text-center text-muted fs-sm">
+                                    <i class="fa fa-info-circle me-1"></i> Static virtual accounts are not available for <strong>{{ $userCurr }}</strong> users.
                                 </div>
                             @endif
                         </div>
@@ -416,18 +607,42 @@
                     <div class="row justify-content-center">
                         <div class="col-lg-8">
                             <div class="text-center mb-4">
-                                <h4 class="fw-bold mb-1">Update Payout Bank Account</h4>
-                                <p class="text-muted fs-sm">Resolves account name automatically with Paystack bank lookup</p>
+                                <h4 class="fw-bold mb-1">Update Payout Account ({{ $userCurr }})</h4>
+                                <p class="text-muted fs-sm">
+                                    @if($userCurr === 'NGN')
+                                        Resolves Nigerian account names with <strong>Paystack</strong> banking network.
+                                    @else
+                                        Supports Bank Accounts and Mobile Money networks via <strong>Flutterwave</strong>.
+                                    @endif
+                                </p>
                             </div>
 
                             <form action="{{ route('admin.update.account.details') }}" method="POST">
                                 @csrf
                                 <input type="hidden" name="user_id" value="{{ $info->id }}">
 
-                                <div class="mb-3">
+                                @if(in_array($userCurr, ['GHS', 'KES', 'UGX']))
+                                    <div class="mb-3">
+                                        <label class="form-label fw-semibold">Payout Channel Method <span class="text-danger">*</span></label>
+                                        <div class="d-flex gap-3">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="method" id="methodBank" value="bank" checked onchange="toggleMethodFields('bank')">
+                                                <label class="form-check-label" for="methodBank">Bank Account</label>
+                                            </div>
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="method" id="methodMomo" value="mobile_money" onchange="toggleMethodFields('mobile_money')">
+                                                <label class="form-check-label" for="methodMomo">Mobile Money</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @else
+                                    <input type="hidden" name="method" value="bank">
+                                @endif
+
+                                <div class="mb-3" id="bankSelectGroup">
                                     <label class="form-label fw-semibold">Bank Name <span class="text-danger">*</span></label>
-                                    <select class="form-select" name="bank_code" required>
-                                        <option value="">Select Bank</option>
+                                    <select class="form-select" name="bank_code" id="bankCodeSelect" required>
+                                        <option value="">-- Select Bank --</option>
                                         @foreach ($bankList as $bank)
                                             <option value="{{ $bank['code'] }}" {{ @$info->accountDetails->bank_code == $bank['code'] ? 'selected' : '' }}>
                                                 {{ $bank['name'] }}
@@ -436,15 +651,38 @@
                                     </select>
                                 </div>
 
+                                @if(!empty($mobileMoneyNetworks))
+                                    <div class="mb-3 d-none" id="momoSelectGroup">
+                                        <label class="form-label fw-semibold">Mobile Money Network <span class="text-danger">*</span></label>
+                                        <select class="form-select" name="momo_network" id="momoNetworkSelect">
+                                            <option value="">-- Select Network --</option>
+                                            @foreach ($mobileMoneyNetworks as $net)
+                                                <option value="{{ $net['code'] }}" {{ @$info->accountDetails->bank_code == $net['code'] ? 'selected' : '' }}>
+                                                    {{ $net['name'] }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                @endif
+
                                 <div class="mb-3">
-                                    <label class="form-label fw-semibold">Account Number <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control font-monospace" name="account_number"
-                                        placeholder="10-digit NGN Account Number" required value="{{ @$info->accountDetails->account_number }}">
+                                    <label class="form-label fw-semibold" id="accountNumberLabel">Account Number <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control font-monospace" name="account_number" id="accountNumberInput"
+                                        placeholder="{{ $userCurr === 'NGN' ? '10-digit NGN Account Number' : 'Account or Mobile Phone Number' }}" required value="{{ @$info->accountDetails->account_number }}">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Account Holder Name (Optional / Override)</label>
+                                    <input type="text" class="form-control" name="account_name" id="accountNameInput"
+                                        placeholder="Full Name as registered on bank or Mobile Money" value="{{ @$info->accountDetails->name }}">
+                                    <div id="accountNameStatus" class="form-text fs-xs mt-1">
+                                        <span class="text-muted">Will auto-resolve with {{ $userCurr === 'NGN' ? 'Paystack' : 'Flutterwave' }} when account number is entered.</span>
+                                    </div>
                                 </div>
 
                                 <div class="text-center mt-4">
                                     <button type="submit" class="btn btn-primary px-4 py-2">
-                                        <i class="fa fa-save me-1"></i> Save Account Details
+                                        <i class="fa fa-save me-1"></i> Save Payout Account Details
                                     </button>
                                 </div>
                             </form>
@@ -509,4 +747,194 @@
         </div>
 
     </div>
+@endsection
+
+@section('script')
+<script>
+function toggleMethodFields(method) {
+    const bankGroup = document.getElementById('bankSelectGroup');
+    const momoGroup = document.getElementById('momoSelectGroup');
+    const bankSelect = document.getElementById('bankCodeSelect');
+    const momoSelect = document.getElementById('momoNetworkSelect');
+    const numLabel = document.getElementById('accountNumberLabel');
+
+    if (method === 'mobile_money') {
+        if (bankGroup) bankGroup.classList.add('d-none');
+        if (momoGroup) momoGroup.classList.remove('d-none');
+        if (bankSelect) { bankSelect.disabled = true; bankSelect.required = false; }
+        if (momoSelect) { momoSelect.disabled = false; momoSelect.required = true; }
+        if (numLabel) numLabel.innerHTML = 'Mobile Money Phone Number <span class="text-danger">*</span>';
+    } else {
+        if (bankGroup) bankGroup.classList.remove('d-none');
+        if (momoGroup) momoGroup.classList.add('d-none');
+        if (bankSelect) { bankSelect.disabled = false; bankSelect.required = true; }
+        if (momoSelect) { momoSelect.disabled = true; momoSelect.required = false; }
+        if (numLabel) numLabel.innerHTML = 'Account Number <span class="text-danger">*</span>';
+    }
+}
+
+function toggleQuickMethodFields(method) {
+    const bankGroup = document.getElementById('quickBankSelectGroup');
+    const momoGroup = document.getElementById('quickMomoSelectGroup');
+    const bankSelect = document.getElementById('quickBankCodeSelect');
+    const momoSelect = document.getElementById('quickMomoNetworkSelect');
+    const numLabel = document.getElementById('quickAccountNumberLabel');
+
+    if (method === 'mobile_money') {
+        if (bankGroup) bankGroup.classList.add('d-none');
+        if (momoGroup) momoGroup.classList.remove('d-none');
+        if (bankSelect) { bankSelect.disabled = true; bankSelect.required = false; }
+        if (momoSelect) { momoSelect.disabled = false; momoSelect.required = true; }
+        if (numLabel) numLabel.innerHTML = 'Mobile Money Phone Number <span class="text-danger">*</span>';
+    } else {
+        if (bankGroup) bankGroup.classList.remove('d-none');
+        if (momoGroup) momoGroup.classList.add('d-none');
+        if (bankSelect) { bankSelect.disabled = false; bankSelect.required = true; }
+        if (momoSelect) { momoSelect.disabled = true; momoSelect.required = false; }
+        if (numLabel) numLabel.innerHTML = 'Account / Phone Number <span class="text-danger">*</span>';
+    }
+}
+
+function toggleQuickEditMethodFields(method) {
+    const bankGroup = document.getElementById('quickEditBankSelectGroup');
+    const momoGroup = document.getElementById('quickEditMomoSelectGroup');
+    const bankSelect = document.getElementById('quickEditBankCodeSelect');
+    const momoSelect = document.getElementById('quickEditMomoNetworkSelect');
+    const numLabel = document.getElementById('quickEditAccountNumberLabel');
+
+    if (method === 'mobile_money') {
+        if (bankGroup) bankGroup.classList.add('d-none');
+        if (momoGroup) momoGroup.classList.remove('d-none');
+        if (bankSelect) { bankSelect.disabled = true; bankSelect.required = false; }
+        if (momoSelect) { momoSelect.disabled = false; momoSelect.required = true; }
+        if (numLabel) numLabel.innerHTML = 'Mobile Money Phone Number <span class="text-danger">*</span>';
+    } else {
+        if (bankGroup) bankGroup.classList.remove('d-none');
+        if (momoGroup) momoGroup.classList.add('d-none');
+        if (bankSelect) { bankSelect.disabled = false; bankSelect.required = true; }
+        if (momoSelect) { momoSelect.disabled = true; momoSelect.required = false; }
+        if (numLabel) numLabel.innerHTML = 'Account / Phone Number <span class="text-danger">*</span>';
+    }
+}
+
+function attachAutoResolver(bankSelectId, accountNumberId, accountNameId, statusElementId, getMethodFn) {
+    const bankSelect = document.getElementById(bankSelectId);
+    const accInput = document.getElementById(accountNumberId);
+    const nameInput = document.getElementById(accountNameId);
+    const statusEl = document.getElementById(statusElementId);
+    if (!accInput || !nameInput) return;
+
+    let debounceTimer = null;
+
+    function triggerLookup() {
+        const method = typeof getMethodFn === 'function' ? getMethodFn() : 'bank';
+        if (method === 'mobile_money') {
+            if (statusEl) {
+                statusEl.innerHTML = '<span class="text-muted"><i class="fa fa-info-circle me-1"></i> Mobile Money accounts use the registered subscriber name.</span>';
+            }
+            return;
+        }
+
+        const bankCode = bankSelect ? bankSelect.value : '';
+        const accNum = accInput.value.trim();
+        const userCurrency = '{{ $userCurr }}';
+        const minLength = userCurrency === 'NGN' ? 10 : 6;
+
+        if (!bankCode || accNum.length < minLength) {
+            if (statusEl) {
+                statusEl.innerHTML = '<span class="text-muted"><i class="fa fa-info-circle me-1"></i> Enter bank and account number to auto-resolve account name.</span>';
+            }
+            return;
+        }
+
+        if (statusEl) {
+            statusEl.innerHTML = '<span class="text-primary"><i class="fa fa-spinner fa-spin me-1"></i> Resolving account name with Flutterwave...</span>';
+        }
+
+        fetch('{{ route("validate.bank") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                account_number: accNum,
+                bank_code: bankCode,
+                currency: userCurrency,
+                method: method
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.account_name) {
+                nameInput.value = data.account_name;
+                if (statusEl) {
+                    statusEl.innerHTML = '<span class="text-success fw-bold"><i class="fa fa-check-circle me-1"></i> Resolved Name: ' + data.account_name + '</span>';
+                }
+            } else {
+                if (statusEl) {
+                    statusEl.innerHTML = '<span class="text-warning"><i class="fa fa-exclamation-triangle me-1"></i> ' + (data.message || 'Could not auto-resolve name. You may enter it manually.') + '</span>';
+                }
+            }
+        })
+        .catch(err => {
+            if (statusEl) {
+                statusEl.innerHTML = '<span class="text-muted"><i class="fa fa-info-circle me-1"></i> Auto-resolution unavailable. You can enter the name manually.</span>';
+            }
+        });
+    }
+
+    if (bankSelect) {
+        bankSelect.addEventListener('change', triggerLookup);
+    }
+
+    accInput.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        const userCurrency = '{{ $userCurr }}';
+        const triggerDelay = (userCurrency === 'NGN' && accInput.value.trim().length === 10) ? 100 : 500;
+        debounceTimer = setTimeout(triggerLookup, triggerDelay);
+    });
+
+    accInput.addEventListener('blur', triggerLookup);
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    // 1. Quick Add Form
+    attachAutoResolver(
+        'quickBankCodeSelect',
+        'quickAccountNumberInput',
+        'quickAccountNameInput',
+        'quickAccountNameStatus',
+        function () {
+            const el = document.querySelector('input[name="method"]:checked');
+            return el ? el.value : 'bank';
+        }
+    );
+
+    // 2. Quick Edit Form
+    attachAutoResolver(
+        'quickEditBankCodeSelect',
+        'quickEditAccountNumberInput',
+        'quickEditAccountNameInput',
+        'quickEditAccountNameStatus',
+        function () {
+            const el = document.querySelector('#quickEditPayoutCard input[name="method"]:checked');
+            return el ? el.value : 'bank';
+        }
+    );
+
+    // 3. Tab Bank Form
+    attachAutoResolver(
+        'bankCodeSelect',
+        'accountNumberInput',
+        'accountNameInput',
+        'accountNameStatus',
+        function () {
+            const el = document.querySelector('#tab-bank input[name="method"]:checked');
+            return el ? el.value : 'bank';
+        }
+    );
+});
+</script>
 @endsection

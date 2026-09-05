@@ -1058,20 +1058,19 @@ class HomeController extends Controller
     public function validateBankAccount(Request $request)
     {
         $request->validate([
-            'account_number' => 'required|digits:10|numeric',
+            'account_number' => 'required|string',
             'bank_code'      => 'required|string',
         ]);
 
-        // Log::info("Validating account: " . $request->account_number);
+        $currency = strtoupper($request->input('currency', 'NGN'));
+        $method = strtolower($request->input('method', 'bank'));
 
-        $accountInfo = resolveBankName($request->account_number, $request->bank_code);
+        $accountInfo = resolveBankName($request->account_number, $request->bank_code, $currency, $method);
 
-        // Log::info($accountInfo);
-
-        if (!isset($accountInfo['status']) || $accountInfo['status'] != true) {
+        if (!isset($accountInfo['status']) || $accountInfo['status'] != 'true' || empty($accountInfo['data']['account_name'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid account details'
+                'message' => $accountInfo['message'] ?? 'Could not resolve account details'
             ], 400);
         }
 
@@ -1081,8 +1080,8 @@ class HomeController extends Controller
             'success'      => true,
             'account_name' => $validatedName,
             'bank_name'    => $accountInfo['data']['bank_name'] ?? null,
-            'name_match'   => strtolower(trim($validatedName)) === strtolower(trim(auth()->user()->name)),
-            'current_name' => auth()->user()->name
+            'name_match'   => auth()->check() ? (strtolower(trim($validatedName)) === strtolower(trim(auth()->user()->name))) : true,
+            'current_name' => auth()->check() ? auth()->user()->name : null
         ]);
     }
 

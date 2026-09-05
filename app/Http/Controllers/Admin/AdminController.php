@@ -995,13 +995,18 @@ class AdminController extends Controller
 
         $refereeId = Referral::where('user_id', $id)->value('referee_id');
         $referredBy = $refereeId ? User::find($refereeId) : null;
-        $bankList = bankList();
+        $userCurr = baseCurrency($info);
+        $bankList = bankList($userCurr);
+        $countryMap = ['GHS' => 'GH', 'KES' => 'KE', 'ZAR' => 'ZA', 'UGX' => 'UG'];
+        $mobileMoneyNetworks = isset($countryMap[$userCurr]) ? getFlutterwaveMobileMoneyNetworks($countryMap[$userCurr]) : [];
         $activeCurrencies = Currency::where('is_active', true)->orderBy('code')->get();
 
         return view('admin.users.user_info_new', [
             'info' => $info,
             'referredBy' => $referredBy,
+            'userCurr' => $userCurr,
             'bankList' => $bankList,
+            'mobileMoneyNetworks' => $mobileMoneyNetworks,
             'activeCurrencies' => $activeCurrencies,
         ]);
     }
@@ -2074,55 +2079,64 @@ class AdminController extends Controller
         }
 
         foreach ($ids as $id) {
+            DB::transaction(function () use ($id) {
+                $ca = CampaignWorker::where('id', $id)->lockForUpdate()->first();
+                if (!$ca || $ca->status === 'Approved') {
+                    return;
+                }
 
-            $ca = CampaignWorker::where('id', $id)->first();
-            $ca->status = 'Approved';
-            $ca->reason = 'Auto-approval';
-            $ca->save();
+                $ca->status = 'Approved';
+                $ca->reason = 'Auto-approval';
+                $ca->save();
 
-            $camp = Campaign::where('id', $ca->campaign_id)->first();
-            checkCampaignCompletedStatus($camp->id);
+                $camp = Campaign::where('id', $ca->campaign_id)->first();
+                if ($camp) {
+                    checkCampaignCompletedStatus($camp->id);
+                }
 
-            $user = User::where('id', $ca->user_id)->first();
-            $baseCurrency = baseCurrency($user);
-            $amountCredited = $ca->amount;
-            if ($baseCurrency == 'NGN') {
-                $currency = 'NGN';
-                $channel = 'paystack';
-                $wallet = Wallet::where('user_id', $ca->user_id)->first();
-                // $wallet->balance += (int)$amountCredited;
-                $wallet->balance += $amountCredited;
-                $wallet->save();
-            } elseif ($camp->currency == 'USD') {
-                $currency = 'USD';
-                $channel = 'paypal';
-                $wallet = Wallet::where('user_id', $ca->user_id)->first();
-                $wallet->usd_balance += $amountCredited;
-                $wallet->save();
-            } else {
-                $currency = baseCurrency($user);
-                $channel = 'flutterwave';
-                $wallet = Wallet::where('user_id', $ca->user_id)->first();
-                $wallet->base_currency_balance += $amountCredited;
-                $wallet->save();
-            }
+                $user = User::where('id', $ca->user_id)->first();
+                $baseCurrency = baseCurrency($user);
+                $amountCredited = (float) $ca->amount;
 
-            $ref = time();
+                $wallet = Wallet::where('user_id', $ca->user_id)->lockForUpdate()->first();
+                if (!$wallet) {
+                    return;
+                }
 
-            PaymentTransaction::create([
-                'user_id' => $ca->user_id,
-                'campaign_id' => '1',
-                'reference' => $ref,
-                'amount' => $amountCredited,
-                'balance' => walletBalance($ca->user_id),
-                'status' => 'successful',
-                'currency' => $currency,
-                'channel' => $channel,
-                'type' => 'campaign_payment',
-                'description' => 'Campaign Payment for ' . $ca->campaign->post_title,
-                'tx_type' => 'Credit',
-                'user_type' => 'regular'
-            ]);
+                if ($baseCurrency == 'NGN') {
+                    $currency = 'NGN';
+                    $channel = 'paystack';
+                    $wallet->balance += $amountCredited;
+                    $wallet->save();
+                } elseif ($camp && $camp->currency == 'USD') {
+                    $currency = 'USD';
+                    $channel = 'paypal';
+                    $wallet->usd_balance += $amountCredited;
+                    $wallet->save();
+                } else {
+                    $currency = $baseCurrency;
+                    $channel = 'flutterwave';
+                    $wallet->base_currency_balance += $amountCredited;
+                    $wallet->save();
+                }
+
+                $ref = 'MASS_' . time() . '_' . $ca->id;
+
+                PaymentTransaction::create([
+                    'user_id' => $ca->user_id,
+                    'campaign_id' => $ca->campaign_id,
+                    'reference' => $ref,
+                    'amount' => $amountCredited,
+                    'balance' => walletBalance($ca->user_id),
+                    'status' => 'successful',
+                    'currency' => $currency,
+                    'channel' => $channel,
+                    'type' => 'campaign_payment',
+                    'description' => 'Campaign Payment for ' . ($camp->post_title ?? 'Task'),
+                    'tx_type' => 'Credit',
+                    'user_type' => 'regular'
+                ]);
+            });
         }
         return back()->with('success', 'Mass Approval Successful');
     }
@@ -3451,35 +3465,89 @@ class AdminController extends Controller
 
     public function updateUserAccountDetails(Request $request)
     {
-        $accountInformation = resolveBankName($request->account_number, $request->bank_code);
-        // Log::info($accountInformation);
-        if ($accountInformation['status'] == 'true') {
-            $recipientCode = recipientCode($accountInformation['data']['account_name'], $request->account_number, $request->bank_code);
-            BankInformation::updateOrCreate(
-                ['user_id' => $request->user_id],
-                [
-                    'name' => $accountInformation['data']['account_name'],
-                    'bank_name' => $recipientCode['data']['details']['bank_name'],
-                    'account_number' => $request->account_number,
-                    'bank_code' => $request->bank_code,
-                    'recipient_code' => $recipientCode['data']['recipient_code'],
-                ]
-            );
+        $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'bank_code' => 'required|string',
+            'account_number' => 'required|string',
+        ]);
 
-            $user = User::where('id', $request->user_id)->first();
-            $subject = 'Account Details Updated';
-            $content = 'Congratulations, your account details has been updated on Freebyz.';
+        $user = User::findOrFail($request->user_id);
+        $currency = baseCurrency($user);
+        $method = strtolower($request->input('method', 'bank'));
 
+        $resolvedName = null;
+        $bankName = $request->input('bank_name');
+
+        $countryMap = ['NGN' => 'NG', 'GHS' => 'GH', 'KES' => 'KE', 'ZAR' => 'ZA', 'UGX' => 'UG'];
+        $countryCode = $countryMap[$currency] ?? 'NG';
+
+        if ($method === 'mobile_money') {
+            if (!$request->filled('account_name')) {
+                return back()->with('error', 'Account holder name is required for Mobile Money payout accounts.');
+            }
+            $resolvedName = $request->input('account_name');
+
+            if (!$bankName) {
+                $momoNetworks = getFlutterwaveMobileMoneyNetworks($countryCode);
+                foreach ($momoNetworks as $m) {
+                    if ($m['code'] === $request->bank_code) {
+                        $bankName = $m['name'];
+                        break;
+                    }
+                }
+            }
+        } else {
+            $resolved = resolveBankName($request->account_number, $request->bank_code, $currency, 'bank');
+            if ($resolved && $resolved['status'] === 'true') {
+                $resolvedName = $resolved['data']['account_name'] ?? null;
+            }
+
+            if (!$resolvedName && $request->filled('account_name')) {
+                $resolvedName = $request->input('account_name');
+            }
+
+            if (!$resolvedName) {
+                return back()->with('error', "Unable to resolve {$currency} bank account details via Flutterwave. Please check account number and bank.");
+            }
+
+            if (!$bankName) {
+                $banks = bankList($currency);
+                foreach ($banks as $b) {
+                    if (($b['code'] ?? '') == $request->bank_code) {
+                        $bankName = $b['name'];
+                        break;
+                    }
+                }
+            }
+        }
+
+        BankInformation::updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'name' => $resolvedName,
+                'bank_name' => $bankName ?? ($method === 'mobile_money' ? 'Mobile Money' : 'Bank Account'),
+                'account_number' => $request->account_number,
+                'bank_code' => $request->bank_code,
+                'recipient_code' => null,
+                'currency' => $currency,
+            ]
+        );
+
+        try {
+            $subject = 'Payout Account Details Updated';
+            $content = "Your payout account details ({$currency}) have been updated on Freebyz by administration.";
             Mail::to($user->email)->send(new GeneralMail($user, $content, $subject, ''));
             app(NotificationHelpers::class)->createNotification(
                 $user,
-                'Account Details Updated',
-                'Congratulations, your account details has been updated on Freebyz.',
+                'Payout Account Details Updated',
+                $content,
                 'account'
             );
-            return back()->with('success', 'Account Details Upated');
+        } catch (\Throwable $ne) {
+            Log::warning('Email/Notification delivery failed: ' . $ne->getMessage());
         }
-        return back()->with('error', 'Account Updating Failed');
+
+        return back()->with('success', "Payout account details saved successfully ({$currency} - {$resolvedName}).");
     }
 
     public function virtualAccountList()
@@ -3490,12 +3558,14 @@ class AdminController extends Controller
 
     public function reactivateVA($id)
     {
+        $user = User::findOrFail($id);
+        $result = reGenerateVirtualAccount($user);
 
-        // return $request;
-        // $bankInfor = BankInformation::where('user_id', $id)->first()->name;
-        $userPhone = User::where('id', $id)->first();
-        reGenerateVirtualAccount($userPhone);
-        return back()->with('success', 'Virtual Account Regenerated Successfully');
+        if (!empty($result['status'])) {
+            return back()->with('success', $result['message'] ?? 'Virtual Account generated successfully');
+        }
+
+        return back()->with('error', $result['message'] ?? 'Failed to generate Virtual Account');
     }
 
     public function removeVirtualAccount($id)
